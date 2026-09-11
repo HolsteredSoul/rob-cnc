@@ -38,6 +38,7 @@ class GameRenderer {
     this.lockRoot = null;
     this.cursorEl = null;
     this.lockHintEl = null;
+    this._lockWarmup = 0;
     
     // Map bounds (clamping)
     this.mapBounds = { minX: 10, maxX: 190, minZ: 10, maxZ: 190 };
@@ -113,9 +114,6 @@ class GameRenderer {
         this.lastMousePos = { x: pt.x, y: pt.y };
         e.preventDefault();
       }
-      if (this.lockEnabled && !this.pointerLocked && e.button === 0) {
-        this.requestPlayLock();
-      }
     });
 
     window.addEventListener('mouseup', (e) => {
@@ -141,11 +139,32 @@ class GameRenderer {
       || key === ' ' || key === 'pageup' || key === 'pagedown' || key === 'home' || key === 'end';
   }
 
+  seedVirtualCursor(x, y) {
+    if (typeof x !== 'number' || typeof y !== 'number') return;
+    const bounds = this.getLockBounds();
+    this.virtualCursor.x = Math.max(bounds.left + 1, Math.min(bounds.right - 1, x));
+    this.virtualCursor.y = Math.max(bounds.top + 1, Math.min(bounds.bottom - 1, y));
+    this.syncCursorHud();
+  }
+
   applyMouseMove(e) {
     if (this.pointerLocked) {
+      const mx = e.movementX || 0;
+      const my = e.movementY || 0;
+      // Pointer lock recenters the OS cursor and fires a huge first delta.
+      if (this._lockWarmup > 0) {
+        this._lockWarmup -= 1;
+        this.pointerInside = true;
+        this.syncCursorHud();
+        return;
+      }
+      if (Math.abs(mx) > 80 || Math.abs(my) > 80) {
+        this.pointerInside = true;
+        return;
+      }
       const bounds = this.getLockBounds();
-      this.virtualCursor.x = Math.max(bounds.left + 1, Math.min(bounds.right - 1, this.virtualCursor.x + (e.movementX || 0)));
-      this.virtualCursor.y = Math.max(bounds.top + 1, Math.min(bounds.bottom - 1, this.virtualCursor.y + (e.movementY || 0)));
+      this.virtualCursor.x = Math.max(bounds.left + 1, Math.min(bounds.right - 1, this.virtualCursor.x + mx));
+      this.virtualCursor.y = Math.max(bounds.top + 1, Math.min(bounds.bottom - 1, this.virtualCursor.y + my));
       this.pointerInside = true;
     } else {
       this.virtualCursor.x = e.clientX;
@@ -190,14 +209,19 @@ class GameRenderer {
 
   getPointerClient(e) {
     if (this.pointerLocked) return { x: this.virtualCursor.x, y: this.virtualCursor.y };
-    if (e) return { x: e.clientX, y: e.clientY };
+    if (e && typeof e.clientX === 'number') return { x: e.clientX, y: e.clientY };
     return { x: this.virtualCursor.x, y: this.virtualCursor.y };
   }
 
   onPointerLockChange() {
     const el = document.pointerLockElement || document.mozPointerLockElement;
     this.pointerLocked = !!(el && (el === this.lockRoot || el === this.canvas));
-    if (this.pointerLocked) this.pointerInside = true;
+    if (this.pointerLocked) {
+      this.pointerInside = true;
+      this._lockWarmup = 3;
+    } else {
+      this._lockWarmup = 0;
+    }
     const root = this.lockRoot || document.body;
     if (root && root.classList) {
       if (this.pointerLocked) root.classList.add('pointer-locked');
@@ -234,8 +258,9 @@ class GameRenderer {
 
   setPlayCapture(on) {
     this.lockEnabled = !!on;
-    if (on) this.requestPlayLock();
-    else this.exitPlayLock();
+    // Do not lock on Deploy — that click is on the lobby button, not the unit.
+    // Lock after a battlefield click so select/move keep the real cursor position.
+    if (!on) this.exitPlayLock();
     this.syncCursorHud();
   }
 

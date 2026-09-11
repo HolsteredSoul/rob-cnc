@@ -31,10 +31,7 @@ class InputManager {
       this.onMouseDown(e);
     });
     window.addEventListener('contextmenu', (e) => {
-      if (this.ctx.missionActive) {
-        e.preventDefault();
-        this.onRightClick(e);
-      }
+      if (this.ctx.missionActive) e.preventDefault();
     });
     window.addEventListener('mousemove', (e) => this.onMouseMove(e));
     window.addEventListener('mouseup', (e) => this.onMouseUp(e));
@@ -62,9 +59,18 @@ class InputManager {
 
   onMouseDown(e) {
     if (e._cncVirtual) return;
+    if (e.button === 2) {
+      e.preventDefault();
+      this.onRightClick(e);
+      return;
+    }
     if (e.button === 0) { // Left Click
+      const r = this.ctx.renderer;
+      if (r && !r.pointerLocked && typeof e.clientX === 'number') {
+        r.seedVirtualCursor(e.clientX, e.clientY);
+      }
       const pt = this.getPointer(e);
-      if (this.ctx.renderer && this.ctx.renderer.pointerLocked) {
+      if (r && r.pointerLocked) {
         const ui = this.hitUiAt(pt.x, pt.y);
         if (ui) {
           const clickable = ui.closest('button, .build-card, .build-tab, .cmd-mode-btn, .stance-btn, .action-btn, .team-card, .mission-card, .diff-btn, .badge-btn');
@@ -86,10 +92,6 @@ class InputManager {
         }
       } else if (this.isHudTarget(e.target)) {
         return;
-      }
-
-      if (this.ctx.missionActive && this.ctx.renderer && !this.ctx.renderer.pointerLocked) {
-        this.ctx.renderer.requestPlayLock();
       }
 
       if (this.placementBuildingType) {
@@ -162,10 +164,14 @@ class InputManager {
   onMouseUp(e) {
     if (e.button === 0 && this.isLeftMouseDown) {
       this.isLeftMouseDown = false;
-      this.selectionBoxEl.style.display = 'none';
+      if (this.selectionBoxEl) this.selectionBoxEl.style.display = 'none';
 
+      const r = this.ctx.renderer;
+      if (r && !r.pointerLocked && typeof e.clientX === 'number') {
+        r.seedVirtualCursor(e.clientX, e.clientY);
+      }
       const pt = this.getPointer(e);
-      const worldPos = this.ctx.renderer.getGroundIntersection(pt.x, pt.y);
+      const worldPos = r.getGroundIntersection(pt.x, pt.y);
 
       if (this.isBoxSelecting && this.dragStartWorld && worldPos) {
         // Multi-Unit Selection inside Box
@@ -185,6 +191,11 @@ class InputManager {
       }
 
       this.isBoxSelecting = false;
+
+      if (this.ctx.missionActive && r && r.lockEnabled && !r.pointerLocked) {
+        r.seedVirtualCursor(pt.x, pt.y);
+        r.requestPlayLock();
+      }
     }
   }
 
@@ -244,8 +255,12 @@ class InputManager {
   onRightClick(e) {
     if (e._cncVirtual) return;
     const { entityManager, pathfinding, terrain, soundFX, missionManager } = this.ctx;
+    const r = this.ctx.renderer;
+    if (r && !r.pointerLocked && typeof e.clientX === 'number') {
+      r.seedVirtualCursor(e.clientX, e.clientY);
+    }
     const pt0 = this.getPointer(e);
-    if (this.ctx.renderer && this.ctx.renderer.pointerLocked) {
+    if (r && r.pointerLocked) {
       if (this.hitUiAt(pt0.x, pt0.y)) return;
     } else if (this.isHudTarget(e.target)) {
       return;

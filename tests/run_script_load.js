@@ -76,6 +76,15 @@ try {
   assert(edgePan.x < 0, 'left-edge pan should move camera left/west');
   renderer.setPlayCapture(true);
   assert(renderer.lockEnabled === true, 'play capture should enable pointer lock');
+  assert(renderer.pointerLocked === false, 'deploy must not steal the cursor before a battlefield click');
+  renderer.seedVirtualCursor(120, 80);
+  renderer.pointerLocked = true;
+  const lockedPt = renderer.getPointerClient({ clientX: 500, clientY: 400 });
+  assert(lockedPt.x === 120 && lockedPt.y === 80, 'locked picks must use the seeded cursor, not the lock-element center');
+  renderer._lockWarmup = 3;
+  const before = { x: renderer.virtualCursor.x, y: renderer.virtualCursor.y };
+  renderer.applyMouseMove({ movementX: 400, movementY: -300, clientX: 0, clientY: 0 });
+  assert(renderer.virtualCursor.x === before.x && renderer.virtualCursor.y === before.y, 'lock recenter jump must not move the virtual cursor');
   renderer.setPlayCapture(false);
   assert(renderer.lockEnabled === false, 'lobby should release pointer lock');
   console.log('pointer lock / edge-pan idle: ok');
