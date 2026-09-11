@@ -1,0 +1,8 @@
+node.msi
+node_modules/
+.playwright-mcp/
+tests/_scratch/
+*.log
+Thumbs.db
+Desktop.ini
+.DS_Store

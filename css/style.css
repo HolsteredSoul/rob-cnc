@@ -1,0 +1,1090 @@
+/* ==========================================================================
+   Command & Conquer: Operation Vanguard - Tactical RTS Stylesheet
+   ========================================================================== */
+
+:root {
+  --cnc-bg-dark: #121619;
+  --cnc-panel-bg: #1a2228;
+  --cnc-panel-border: #2d3e4a;
+  --cnc-panel-highlight: #3b5060;
+  --cnc-green: #33ff33;
+  --cnc-green-glow: rgba(51, 255, 51, 0.4);
+  --cnc-amber: #ffaa00;
+  --cnc-amber-glow: rgba(255, 170, 0, 0.4);
+  --cnc-red: #ff3333;
+  --cnc-red-glow: rgba(255, 51, 51, 0.5);
+  --cnc-blue: #00b0ff;
+  --cnc-blue-glow: rgba(0, 176, 255, 0.4);
+  --cnc-gold: #ffd700;
+  --sidebar-width: 280px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body, html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  background-color: #000;
+  font-family: 'Consolas', 'Courier New', monospace, sans-serif;
+  color: #d0e0e3;
+}
+
+html.pointer-locked,
+html.pointer-locked * {
+  cursor: none !important;
+}
+
+#game-cursor {
+  position: fixed;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-top: -9px;
+  border: 2px solid #33ff33;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(51, 255, 51, 0.7), inset 0 0 4px rgba(51, 255, 51, 0.4);
+  pointer-events: none;
+  z-index: 400;
+}
+
+#game-cursor::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  background: #33ff33;
+  border-radius: 50%;
+}
+
+#pointer-lock-hint {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 26;
+  background: rgba(18, 24, 28, 0.88);
+  border: 1px solid #2d3e4a;
+  color: #8da4b4;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  padding: 5px 10px;
+  pointer-events: none;
+}
+
+#pointer-lock-hint.hidden,
+#game-cursor.hidden {
+  display: none;
+}
+
+#game-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  display: flex;
+}
+
+/* ==========================================================================
+   3D Viewport
+   ========================================================================== */
+#viewport {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  background: #0d1114;
+  overflow: hidden;
+  cursor: default;
+}
+
+#viewport.cursor-attack {
+  cursor: crosshair !important;
+}
+
+#viewport.cursor-repair {
+  cursor: cell !important;
+}
+
+#viewport.cursor-sell {
+  cursor: no-drop !important;
+}
+
+#three-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Drag Selection Marquee */
+#selection-box {
+  position: absolute;
+  border: 1px dashed var(--cnc-green);
+  background-color: rgba(51, 255, 51, 0.12);
+  pointer-events: none;
+  display: none;
+  z-index: 10;
+}
+
+/* Top Tactical Bar */
+#top-tactical-bar {
+  position: absolute;
+  top: 10px;
+  left: 15px;
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.tactical-badge {
+  pointer-events: auto;
+  background: rgba(18, 24, 28, 0.85);
+  border: 1px solid var(--cnc-panel-border);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+  padding: 6px 14px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.tactical-badge .label {
+  color: #8899a6;
+}
+
+.tactical-badge .value {
+  color: var(--cnc-gold);
+  font-weight: bold;
+  font-size: 15px;
+  text-shadow: 0 0 6px var(--cnc-amber-glow);
+}
+
+.badge-btn {
+  background: #24333e;
+  border: 1px solid #3c5466;
+  color: #d0e0e3;
+  padding: 4px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: all 0.15s;
+}
+
+.badge-btn:hover {
+  background: #344a5a;
+  border-color: var(--cnc-green);
+  color: #fff;
+}
+
+/* Objective / Tutorial Banner */
+#mission-objective-bar {
+  position: absolute;
+  top: 60px;
+  left: 15px;
+  max-width: 480px;
+  background: rgba(18, 26, 32, 0.92);
+  border-left: 4px solid var(--cnc-green);
+  border-top: 1px solid var(--cnc-panel-border);
+  border-right: 1px solid var(--cnc-panel-border);
+  border-bottom: 1px solid var(--cnc-panel-border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
+  padding: 10px 16px;
+  border-radius: 0 4px 4px 0;
+  z-index: 20;
+  transition: all 0.3s ease;
+}
+
+#mission-objective-bar.warning {
+  border-left-color: var(--cnc-amber);
+}
+
+#mission-objective-bar.alert {
+  border-left-color: var(--cnc-red);
+}
+
+.objective-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--cnc-green);
+  letter-spacing: 1.5px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.objective-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #e6f0f2;
+}
+
+.objective-progress {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: #8da4b4;
+}
+
+/* Radio Event Notifications */
+#radio-feed {
+  position: absolute;
+  bottom: 160px;
+  left: 15px;
+  width: 380px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 6px;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.radio-message {
+  background: rgba(14, 20, 24, 0.88);
+  border-left: 3px solid var(--cnc-amber);
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #f0f6f6;
+  border-radius: 0 3px 3px 0;
+  animation: fadeInOut 5s forwards;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+.radio-message.alert {
+  border-left-color: var(--cnc-red);
+  color: #ff9999;
+}
+
+.radio-message.info {
+  border-left-color: var(--cnc-blue);
+}
+
+.radio-message.success {
+  border-left-color: var(--cnc-green);
+  color: #99ff99;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateX(-15px); }
+  10% { opacity: 1; transform: translateX(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-5px); }
+}
+
+/* Selected Unit / Structure Bottom Card */
+#selection-card {
+  position: absolute;
+  bottom: 15px;
+  left: 15px;
+  background: rgba(18, 24, 30, 0.94);
+  border: 1px solid var(--cnc-panel-border);
+  border-top: 2px solid var(--cnc-blue);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8);
+  padding: 12px 16px;
+  border-radius: 4px;
+  z-index: 25;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  min-width: 320px;
+  max-width: 520px;
+}
+
+#selection-card.hidden {
+  display: none;
+}
+
+.selection-portrait {
+  width: 58px;
+  height: 58px;
+  background: #111a20;
+  border: 2px solid #334e62;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.portrait-icon {
+  font-size: 26px;
+}
+
+.selection-info {
+  flex: 1;
+}
+
+.selection-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.selection-name {
+  font-weight: bold;
+  font-size: 14px;
+  letter-spacing: 0.8px;
+  color: #fff;
+}
+
+.selection-count {
+  font-size: 11px;
+  color: #8da4b4;
+}
+
+.hp-bar-container {
+  width: 100%;
+  height: 8px;
+  background: #101518;
+  border: 1px solid #2f404d;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.hp-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--cnc-green);
+  transition: width 0.2s ease, background 0.3s;
+}
+
+.hp-bar-fill.medium {
+  background: var(--cnc-amber);
+}
+
+.hp-bar-fill.low {
+  background: var(--cnc-red);
+}
+
+.selection-stats {
+  font-size: 11px;
+  color: #9cb2c0;
+  display: flex;
+  gap: 12px;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  background: #233440;
+  border: 1px solid #3d5668;
+  color: #c0d4df;
+  padding: 5px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.action-btn:hover {
+  background: #364e60;
+  border-color: var(--cnc-green);
+  color: #fff;
+}
+
+.action-btn.active {
+  background: #1a442e;
+  border-color: var(--cnc-green);
+  color: var(--cnc-green);
+}
+
+/* ==========================================================================
+   Right Command & Conquer Sidebar
+   ========================================================================== */
+#sidebar {
+  width: var(--sidebar-width);
+  height: 100%;
+  background: linear-gradient(180deg, #182229 0%, #10161a 100%);
+  border-left: 2px solid #2e414f;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+  position: relative;
+}
+
+/* Sidebar Header & Radar Frame */
+#radar-container {
+  width: 100%;
+  height: 220px;
+  background: #0a0f12;
+  border-bottom: 2px solid #2b3d4a;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#minimap-canvas {
+  width: 220px;
+  height: 200px;
+  display: block;
+  background: #081014;
+  border: 1px solid #233b4b;
+  box-shadow: inset 0 0 10px rgba(0, 255, 100, 0.15);
+  cursor: crosshair;
+}
+
+.radar-overlay-static {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.15),
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+}
+
+#radar-offline-msg {
+  position: absolute;
+  color: var(--cnc-red);
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-shadow: 0 0 8px var(--cnc-red-glow);
+  text-align: center;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Status & Power Bar Row */
+#sidebar-status-row {
+  display: flex;
+  padding: 8px 10px;
+  background: #141c22;
+  border-bottom: 1px solid #273743;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Power Meter */
+.power-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.power-label {
+  font-size: 10px;
+  color: #7991a0;
+  letter-spacing: 1px;
+}
+
+.power-bar-track {
+  flex: 1;
+  height: 12px;
+  background: #0a0f12;
+  border: 1px solid #2a3c48;
+  position: relative;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.power-bar-fill {
+  height: 100%;
+  width: 75%;
+  background: var(--cnc-green);
+  transition: width 0.3s, background 0.3s;
+}
+
+.power-bar-fill.deficit {
+  background: var(--cnc-red);
+  box-shadow: 0 0 6px var(--cnc-red-glow);
+}
+
+.power-bar-fill.warning {
+  background: var(--cnc-amber);
+}
+
+.power-val {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--cnc-green);
+  min-width: 48px;
+  text-align: right;
+}
+
+.power-val.deficit {
+  color: var(--cnc-red);
+}
+
+/* Mode Command Buttons (Repair, Sell, Airstrike) */
+#command-modes-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #12181d;
+  border-bottom: 1px solid #263642;
+}
+
+.cmd-mode-btn {
+  background: #1f2c35;
+  border: 1px solid #354a5a;
+  color: #b0c6d4;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  border-radius: 2px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+}
+
+.cmd-mode-btn:hover {
+  background: #2b3d4a;
+  border-color: #4a687d;
+  color: #fff;
+}
+
+.cmd-mode-btn.active-repair {
+  background: #1b3d2b;
+  border-color: var(--cnc-green);
+  color: var(--cnc-green);
+  box-shadow: inset 0 0 8px var(--cnc-green-glow);
+}
+
+.cmd-mode-btn.active-sell {
+  background: #4a2020;
+  border-color: var(--cnc-red);
+  color: var(--cnc-red);
+  box-shadow: inset 0 0 8px var(--cnc-red-glow);
+}
+
+.cmd-mode-btn.active-airstrike {
+  background: #1c364d;
+  border-color: var(--cnc-blue);
+  color: var(--cnc-blue);
+  box-shadow: inset 0 0 8px var(--cnc-blue-glow);
+}
+
+.cmd-mode-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Category Tabs */
+#build-tabs {
+  display: flex;
+  background: #0f1519;
+  border-bottom: 1px solid #253541;
+}
+
+.build-tab {
+  flex: 1;
+  padding: 8px 4px;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #7991a0;
+  background: #141d23;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+}
+
+.build-tab:hover {
+  color: #d0e0e3;
+  background: #1a252c;
+}
+
+.build-tab.active {
+  color: var(--cnc-green);
+  background: #1e2a32;
+  border-bottom: 2px solid var(--cnc-green);
+}
+
+/* Build Item Grid */
+#build-grid-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  background: #12191e;
+  scrollbar-width: thin;
+  scrollbar-color: #2e414f #101519;
+}
+
+#build-grid-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+#build-grid-container::-webkit-scrollbar-thumb {
+  background: #2e414f;
+  border-radius: 3px;
+}
+
+.build-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.build-card {
+  position: relative;
+  background: #18232a;
+  border: 1px solid #2c3e4b;
+  border-radius: 3px;
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 84px;
+  transition: all 0.15s;
+}
+
+.build-card:hover:not(.locked) {
+  border-color: #4a687d;
+  background: #202d36;
+  transform: translateY(-1px);
+}
+
+.build-card.locked {
+  opacity: 0.35;
+  cursor: not-allowed;
+  filter: grayscale(0.8);
+}
+
+.build-card.unaffordable:not(.locked) {
+  opacity: 0.72;
+  border-color: #5a3a20;
+}
+
+.build-card.unaffordable:not(.locked) .build-card-cost {
+  color: var(--cnc-red);
+  text-shadow: 0 0 4px var(--cnc-red-glow);
+}
+
+.build-card.ready-to-place {
+  border-color: var(--cnc-green) !important;
+  background: #142a20 !important;
+  animation: pulseGreen 1.2s infinite;
+}
+
+@keyframes pulseGreen {
+  0% { box-shadow: 0 0 4px var(--cnc-green-glow); }
+  50% { box-shadow: 0 0 14px var(--cnc-green-glow); }
+  100% { box-shadow: 0 0 4px var(--cnc-green-glow); }
+}
+
+.build-card-icon {
+  font-size: 24px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.build-card-name {
+  font-size: 10px;
+  font-weight: bold;
+  color: #e2edf2;
+  text-align: center;
+  letter-spacing: 0.5px;
+  line-height: 1.2;
+}
+
+.build-card-cost {
+  font-size: 10px;
+  color: var(--cnc-gold);
+  margin-top: 3px;
+  font-weight: bold;
+}
+
+.build-progress-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+}
+
+.build-card.building .build-progress-overlay {
+  display: flex;
+}
+
+.progress-text {
+  color: var(--cnc-green);
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.queue-badge {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  background: var(--cnc-green);
+  color: #000;
+  font-size: 9px;
+  font-weight: bold;
+  padding: 1px 4px;
+  border-radius: 8px;
+  display: none;
+}
+
+.build-card.has-queue .queue-badge {
+  display: block;
+}
+
+/* Tooltip */
+#build-tooltip {
+  position: fixed;
+  background: #0e151a;
+  border: 1px solid #334d5f;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.85);
+  padding: 8px 12px;
+  border-radius: 4px;
+  max-width: 240px;
+  z-index: 100;
+  pointer-events: none;
+  display: none;
+}
+
+.tooltip-title {
+  color: var(--cnc-green);
+  font-size: 12px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.tooltip-desc {
+  font-size: 10px;
+  color: #a2b8c6;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.tooltip-stats {
+  font-size: 10px;
+  color: var(--cnc-gold);
+  border-top: 1px solid #233440;
+  padding-top: 4px;
+}
+
+/* ==========================================================================
+   Modals & Menus (Mission Select, Difficulty, Victory, Defeat)
+   ========================================================================== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(5, 10, 14, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-overlay.hidden {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+.cnc-modal {
+  width: 580px;
+  background: linear-gradient(180deg, #1b262e 0%, #10171c 100%);
+  border: 2px solid #3c5466;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(0, 176, 255, 0.15);
+  border-radius: 6px;
+  overflow: hidden;
+  color: #d6e4ec;
+}
+
+.cnc-modal-header {
+  background: #141e25;
+  padding: 14px 20px;
+  border-bottom: 2px solid #2e4352;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cnc-modal-title {
+  font-size: 16px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: var(--cnc-green);
+  text-shadow: 0 0 8px var(--cnc-green-glow);
+  text-transform: uppercase;
+}
+
+.cnc-modal-body {
+  padding: 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.cnc-modal-footer {
+  padding: 14px 20px;
+  background: #141e25;
+  border-top: 1px solid #273845;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.cnc-btn {
+  background: linear-gradient(180deg, #283a48 0%, #1c2b36 100%);
+  border: 1px solid #435e72;
+  color: #e2edf2;
+  padding: 10px 22px;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cnc-btn:hover {
+  background: linear-gradient(180deg, #374f62 0%, #253947 100%);
+  border-color: var(--cnc-green);
+  color: #fff;
+  box-shadow: 0 0 10px var(--cnc-green-glow);
+}
+
+.cnc-btn-primary {
+  background: linear-gradient(180deg, #1b4b2c 0%, #11311d 100%);
+  border-color: var(--cnc-green);
+  color: var(--cnc-green);
+}
+
+.cnc-btn-primary:hover {
+  background: linear-gradient(180deg, #25663c 0%, #174227 100%);
+  color: #fff;
+  box-shadow: 0 0 15px var(--cnc-green-glow);
+}
+
+/* Mission Select Cards */
+.mission-card {
+  background: #151f26;
+  border: 1px solid #2d404e;
+  border-radius: 4px;
+  padding: 14px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mission-card:hover {
+  border-color: var(--cnc-blue);
+  background: #1c2a33;
+}
+
+.mission-card.selected {
+  border-color: var(--cnc-green);
+  background: #152b21;
+  box-shadow: 0 0 10px var(--cnc-green-glow);
+}
+
+.mission-card-title {
+  font-weight: bold;
+  font-size: 14px;
+  color: #fff;
+  display: flex;
+  justify-content: space-between;
+}
+
+.mission-difficulty-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: #233440;
+}
+
+.mission-card-desc {
+  font-size: 12px;
+  color: #8fa6b5;
+  line-height: 1.4;
+}
+
+/* Difficulty Selector Radios */
+.difficulty-selector {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+.diff-btn {
+  flex: 1;
+  padding: 10px;
+  background: #162027;
+  border: 1px solid #2f4453;
+  color: #9cb2c0;
+  text-align: center;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.diff-btn:hover {
+  border-color: #49687e;
+  color: #fff;
+}
+
+.diff-btn.selected {
+  border-color: var(--cnc-gold);
+  background: #2d2613;
+  color: var(--cnc-gold);
+  box-shadow: 0 0 8px var(--cnc-amber-glow);
+}
+
+/* Victory / Defeat Headers */
+.victory-header {
+  color: var(--cnc-green) !important;
+  font-size: 22px !important;
+}
+
+.defeat-header {
+  color: var(--cnc-red) !important;
+  font-size: 22px !important;
+}
+
+/* Floating Health Bar overlay on 3D objects */
+.floating-hp {
+  position: absolute;
+  width: 32px;
+  height: 4px;
+  background: #000;
+  border: 1px solid #333;
+  pointer-events: none;
+  border-radius: 1px;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  display: none;
+  z-index: 15;
+}
+
+.floating-hp-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--cnc-green);
+}
+
+/* ==========================================================================
+   Lobby / Pre-Game Screen
+   ========================================================================== */
+
+.cnc-modal-wide {
+  width: 640px;
+  max-width: 95vw;
+}
+
+.lobby-section-label {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: var(--cnc-green);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #1e3040;
+  padding-bottom: 6px;
+}
+
+/* Team Faction Cards */
+.team-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.team-card {
+  background: #131c22;
+  border: 2px solid #2a3d4e;
+  border-radius: 6px;
+  padding: 16px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.team-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+
+.team-card.team-blue:hover,
+.team-card.team-blue.selected {
+  border-color: var(--cnc-blue);
+  background: #0d1f30;
+  box-shadow: 0 0 16px var(--cnc-blue-glow);
+}
+
+.team-card.team-red:hover,
+.team-card.team-red.selected {
+  border-color: var(--cnc-red);
+  background: #2a0f0f;
+  box-shadow: 0 0 16px var(--cnc-red-glow);
+}
+
+.team-name {
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  margin: 8px 0 6px;
+}
+
+.team-desc {
+  font-size: 11px;
+  color: #7a9aaa;
+  line-height: 1.5;
+}
+
+.cnc-btn-deploy {
+  font-size: 14px;
+  padding: 12px 30px;
+  letter-spacing: 2px;
+}

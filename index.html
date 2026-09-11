@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Command &amp; Conquer: Operation Vanguard</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="lib/three.min.js"></script>
+</head>
+<body>
+  <div id="game-cursor" class="hidden"></div>
+  <div id="game-container">
+    
+    <!-- 3D Interactive Viewport -->
+    <div id="viewport">
+      <canvas id="three-canvas"></canvas>
+      <div id="pointer-lock-hint" class="hidden">Click battlefield to lock mouse in the window</div>
+
+      <!-- Selection Marquee Box -->
+      <div id="selection-box"></div>
+
+      <!-- Top Tactical Bar -->
+      <div id="top-tactical-bar">
+        <div class="tactical-badge">
+          <span class="label">FUNDS:</span>
+          <span class="value" id="credits-val">$ 0</span>
+        </div>
+        <div class="tactical-badge" id="team-badge" style="display:none;">
+          <span class="label">TEAM:</span>
+          <span class="value" id="team-badge-val">BLUE</span>
+        </div>
+        <button class="badge-btn" id="btn-menu">&#9776; MENU</button>
+      </div>
+
+      <!-- Mission Objectives & Tutorial Banner -->
+      <div id="mission-objective-bar">
+        <div class="objective-header">
+          <span>MISSION DIRECTIVE</span>
+          <span id="objective-status">STANDBY</span>
+        </div>
+        <div class="objective-text" id="objective-text">
+          Awaiting deployment orders, Commander.
+        </div>
+      </div>
+
+      <!-- Radio Audio / Event Notification Feed -->
+      <div id="radio-feed"></div>
+
+      <!-- Unit / Structure Selection HUD Card -->
+      <div id="selection-card" class="hidden">
+        <div class="selection-portrait">
+          <span class="portrait-icon" id="selected-portrait-icon">&#128130;</span>
+        </div>
+        <div class="selection-info">
+          <div class="selection-title-row">
+            <span class="selection-name" id="selected-name">Machine Gunner</span>
+            <span class="selection-count" id="selected-count"></span>
+          </div>
+          <div class="hp-bar-container">
+            <div class="hp-bar-fill" id="selected-hp-fill"></div>
+          </div>
+          <div class="selection-stats" id="selected-stats">
+            <span>HP: 110/110</span>
+            <span>ATK: 14</span>
+            <span>RNG: 13</span>
+          </div>
+        </div>
+        <div class="selection-actions" id="stance-actions-row">
+          <button class="action-btn stance-btn active" data-stance="aggressive" title="Engage any enemy in sight">AGG</button>
+          <button class="action-btn stance-btn" data-stance="guard" title="Defend position">GRD</button>
+          <button class="action-btn stance-btn" data-stance="hold" title="Hold ground without moving">HLD</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Command & Conquer Sidebar -->
+    <div id="sidebar">
+      
+      <!-- Radar Screen Container -->
+      <div id="radar-container">
+        <canvas id="minimap-canvas" width="220" height="200"></canvas>
+        <div class="radar-overlay-static"></div>
+        <div id="radar-offline-msg">
+          <span>RADAR LINK OFFLINE</span>
+          <span style="font-size:10px; color:#778899;">BUILD RADAR FACILITY</span>
+        </div>
+      </div>
+
+      <!-- Power Grid Status Bar -->
+      <div id="sidebar-status-row">
+        <div class="power-indicator">
+          <span class="power-label">POWER</span>
+          <div class="power-bar-track">
+            <div class="power-bar-fill" id="power-bar-fill"></div>
+          </div>
+          <span class="power-val" id="power-val">0 / 0 MW</span>
+        </div>
+      </div>
+
+      <!-- Command Modes (Repair, Sell, Airstrike) -->
+      <div id="command-modes-row">
+        <button class="cmd-mode-btn" id="btn-mode-repair" title="Click a building to repair it">REPAIR</button>
+        <button class="cmd-mode-btn" id="btn-mode-sell" title="Click a building to sell for 50% refund">SELL</button>
+        <button class="cmd-mode-btn" id="btn-mode-airstrike" disabled title="Requires active Radar Facility">AIRSTRIKE</button>
+      </div>
+
+      <!-- Build Category Tabs -->
+      <div id="build-tabs">
+        <button class="build-tab active" data-tab="structures">STRUCT</button>
+        <button class="build-tab" data-tab="defenses">DEFENSE</button>
+        <button class="build-tab" data-tab="infantry">INFANTRY</button>
+        <button class="build-tab" data-tab="vehicles">VEHICLES</button>
+      </div>
+
+      <!-- Build Item Cards Grid -->
+      <div id="build-grid-container">
+        <div class="build-grid" id="build-grid"></div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Building Tooltip -->
+  <div id="build-tooltip">
+    <div class="tooltip-title" id="tooltip-title">Power Plant</div>
+    <div class="tooltip-desc" id="tooltip-desc">Generates 120MW electrical power for base structures.</div>
+    <div class="tooltip-stats" id="tooltip-stats">Cost: $300 | Power: +120MW</div>
+  </div>
+
+  <!-- =====================================================================
+       PRE-GAME LOBBY (shown immediately on load)
+       ===================================================================== -->
+  <div class="modal-overlay" id="modal-lobby">
+    <div class="cnc-modal cnc-modal-wide">
+      <div class="cnc-modal-header" style="flex-direction:column; align-items:flex-start; gap:4px;">
+        <div class="cnc-modal-title" style="font-size:20px; letter-spacing:4px;">&#9876; OPERATION VANGUARD</div>
+        <div style="font-size:10px; color:#5a7a8a; letter-spacing:2px;">COMMAND &amp; CONQUER: TACTICAL RTS</div>
+      </div>
+      <div class="cnc-modal-body">
+
+        <!-- STEP 1: Faction / Team Selection -->
+        <div class="lobby-section-label">1. SELECT YOUR FACTION</div>
+        <div class="team-selector">
+          <div class="team-card team-blue selected" id="team-blue" data-team="blue">
+            <div class="team-flag" style="color:#00b0ff; font-size:28px;">&#9654;</div>
+            <div class="team-name" style="color:#00b0ff;">BLUE FORCE</div>
+            <div class="team-desc">Global Defense Initiative<br>Heavy armor &amp; precision strikes</div>
+          </div>
+          <div class="team-card team-red" id="team-red" data-team="red">
+            <div class="team-flag" style="color:#ff3333; font-size:28px;">&#9654;</div>
+            <div class="team-name" style="color:#ff3333;">RED FORCE</div>
+            <div class="team-desc">Brotherhood of Nod<br>Speed, stealth &amp; terror tactics</div>
+          </div>
+        </div>
+
+        <!-- STEP 2: Difficulty -->
+        <div class="lobby-section-label" style="margin-top:18px;">2. AI COMMANDER DIFFICULTY</div>
+        <div class="difficulty-selector">
+          <div class="diff-btn selected" data-diff="easy">EASY<br><small style="font-weight:normal;font-size:9px;">Casual</small></div>
+          <div class="diff-btn" data-diff="medium">MEDIUM<br><small style="font-weight:normal;font-size:9px;">Tactical</small></div>
+          <div class="diff-btn" data-diff="hard">HARD<br><small style="font-weight:normal;font-size:9px;">Relentless</small></div>
+        </div>
+
+        <!-- STEP 3: Mission / Map -->
+        <div class="lobby-section-label" style="margin-top:18px;">3. DEPLOYMENT THEATER (MAP)</div>
+
+        <div class="mission-card selected" data-mission="0">
+          <div class="mission-card-title">
+            <span>MISSION 1 &mdash; OPERATION FOOTHOLD</span>
+            <span class="mission-difficulty-tag" style="background:#1a3020; color:#33ff33;">TUTORIAL BASE</span>
+          </div>
+          <div class="mission-card-desc">Temperate sector. Build base, harvest ore, train troops, destroy the enemy outpost. Step-by-step guidance included.</div>
+        </div>
+
+        <div class="mission-card" data-mission="1">
+          <div class="mission-card-title">
+            <span>MISSION 2 &mdash; CANYON CLASH</span>
+            <span class="mission-difficulty-tag" style="background:#2d2810; color:#ffaa00;">ARMOR COMBAT</span>
+          </div>
+          <div class="mission-card-desc">Desert canyon warfare. War Factory unlocked &mdash; build Battle Tanks and clash over central ore basins.</div>
+        </div>
+
+        <div class="mission-card" data-mission="2">
+          <div class="mission-card-title">
+            <span>MISSION 3 &mdash; AIR SUPERIORITY</span>
+            <span class="mission-difficulty-tag" style="background:#2a1010; color:#ff3333;">TOTAL WAR</span>
+          </div>
+          <div class="mission-card-desc">Frozen tundra total warfare. Full tech tree: Helicopters, Harrier Jets, Laser Obelisks. Eliminate all enemy structures.</div>
+        </div>
+
+      </div>
+      <div class="cnc-modal-footer" style="justify-content:space-between; align-items:center;">
+        <div style="font-size:11px; color:#4a6a7a; letter-spacing:1px;">SELECT FACTION &bull; MISSION &bull; DIFFICULTY</div>
+        <button class="cnc-btn cnc-btn-primary" id="btn-deploy-forces" style="font-size:14px; padding:12px 30px; letter-spacing:2px;">&#9876; DEPLOY FORCES</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- In-game Tactical Menu Modal -->
+  <div class="modal-overlay hidden" id="modal-mission-select">
+    <div class="cnc-modal">
+      <div class="cnc-modal-header">
+        <span class="cnc-modal-title">TACTICAL MISSION ARCHIVES</span>
+      </div>
+      <div class="cnc-modal-body">
+        
+        <div class="mission-card selected" data-mission="0">
+          <div class="mission-card-title">
+            <span>MISSION 1: OPERATION FOOTHOLD (TUTORIAL)</span>
+            <span class="mission-difficulty-tag">BEGINNER</span>
+          </div>
+          <div class="mission-card-desc">Establish a forward outpost in temperate sector 4. Build, mine, train and destroy the enemy command center.</div>
+        </div>
+
+        <div class="mission-card" data-mission="1">
+          <div class="mission-card-title">
+            <span>MISSION 2: CANYON CLASH (ARMOR COMBAT)</span>
+            <span class="mission-difficulty-tag">MEDIUM</span>
+          </div>
+          <div class="mission-card-desc">Desert canyon warzone. Heavy vehicle factory unlocked! Clash over rich central gold ore basins.</div>
+        </div>
+
+        <div class="mission-card" data-mission="2">
+          <div class="mission-card-title">
+            <span>MISSION 3: AIR SUPERIORITY (TOTAL WAR)</span>
+            <span class="mission-difficulty-tag">ADVANCED</span>
+          </div>
+          <div class="mission-card-desc">Total warfare in frozen tundra. Full tech tree: Helicopters, Harrier Jets, Laser Obelisks.</div>
+        </div>
+
+        <div style="margin-top:18px; font-size:12px; font-weight:bold; color:var(--cnc-green);">AI COMMANDER DIFFICULTY:</div>
+        <div class="difficulty-selector">
+          <div class="diff-btn" data-diff="easy">EASY (CASUAL)</div>
+          <div class="diff-btn selected" data-diff="medium">MEDIUM (TACTICAL)</div>
+          <div class="diff-btn" data-diff="hard">HARD (RELENTLESS)</div>
+        </div>
+
+      </div>
+      <div class="cnc-modal-footer">
+        <button class="cnc-btn" id="btn-back-to-lobby">&#8592; BACK TO LOBBY</button>
+        <button class="cnc-btn cnc-btn-primary" id="btn-launch-mission">DEPLOY FORCES</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mission Victory Modal -->
+  <div class="modal-overlay hidden" id="modal-victory">
+    <div class="cnc-modal">
+      <div class="cnc-modal-header">
+        <span class="cnc-modal-title victory-header">MISSION ACCOMPLISHED</span>
+      </div>
+      <div class="cnc-modal-body">
+        <p style="font-size:15px; margin-bottom:12px; color:#fff;">Outstanding work, Commander!</p>
+        <p style="font-size:13px; color:#9bb0be; line-height:1.5;">All primary hostiles neutralized. Battlefield sector secured.</p>
+      </div>
+      <div class="cnc-modal-footer">
+        <button class="cnc-btn" id="btn-victory-lobby">&#8592; RETURN TO LOBBY</button>
+        <button class="cnc-btn cnc-btn-primary" id="btn-victory-continue">NEXT MISSION &rarr;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mission Defeat Modal -->
+  <div class="modal-overlay hidden" id="modal-defeat">
+    <div class="cnc-modal">
+      <div class="cnc-modal-header">
+        <span class="cnc-modal-title defeat-header">MISSION FAILED</span>
+      </div>
+      <div class="cnc-modal-body">
+        <p style="font-size:15px; margin-bottom:12px; color:#ff9999;">Base overrun by hostile forces.</p>
+        <p style="font-size:13px; color:#9bb0be; line-height:1.5;">Command Center compromised. Regroup and retry.</p>
+      </div>
+      <div class="cnc-modal-footer">
+        <button class="cnc-btn" id="btn-defeat-lobby">&#8592; RETURN TO LOBBY</button>
+        <button class="cnc-btn cnc-btn-primary" id="btn-defeat-retry">RETRY MISSION</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Scripts in Dependency Order -->
+  <script src="js/audio/sound_fx.js"></script>
+  <script src="js/entities/unit_models.js"></script>
+  <script src="js/entities/building_models.js"></script>
+  <script src="js/entities/projectiles.js"></script>
+  <script src="js/entities/units.js"></script>
+  <script src="js/tech/tech_tree.js"></script>
+  <script src="js/entities/buildings.js"></script>
+  <script src="js/entities/entity_manager.js"></script>
+  <script src="js/engine/terrain.js"></script>
+  <script src="js/engine/fog_of_war.js"></script>
+  <script src="js/engine/pathfinding.js"></script>
+  <script src="js/engine/renderer.js"></script>
+  <script src="js/engine/input.js"></script>
+  <script src="js/economy/economy.js"></script>
+  <script src="js/ai/skirmish_ai.js"></script>
+  <script src="js/levels/mission_levels.js"></script>
+  <script src="js/ui/minimap.js"></script>
+  <script src="js/ui/hud.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

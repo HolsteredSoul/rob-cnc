@@ -1,0 +1,10 @@
+{
+  "name": "operation-vanguard",
+  "private": true,
+  "description": "Command & Conquer RTS clone — Operation Vanguard",
+  "scripts": {
+    "test": "node tests/run_sim_tests.js",
+    "test:scripts": "node tests/run_script_load.js",
+    "test:launch": "node tests/launch_page.js"
+  }
+}
