@@ -75,7 +75,7 @@ class ProjectileManager {
   }
 
   // Fire homing or straight rocket
-  spawnRocket(fromPos, toPos, targetEntity, damage, shooter) {
+  spawnRocket(fromPos, toPos, targetEntity, damage, shooter, splashRadius = 2.0) {
     const mesh = new THREE.Mesh(this.rocketGeo, this.rocketMat);
     mesh.position.copy(fromPos);
     mesh.lookAt(toPos);
@@ -90,6 +90,7 @@ class ProjectileManager {
       targetEntity: targetEntity,
       damage: damage,
       shooter: shooter,
+      splashRadius: splashRadius,
       speed: 38,
       progress: 0,
       totalDist: fromPos.distanceTo(toPos)
@@ -297,8 +298,8 @@ class ProjectileManager {
       if (p.targetEntity && p.targetEntity.isAlive) {
         p.targetEntity.takeDamage(p.damage, p.shooter);
       }
-      if (entityManager) {
-        entityManager.applyAreaDamage(impactPos, p.damage * 0.4, 2.0, p.shooter);
+      if (entityManager && p.splashRadius) {
+        entityManager.applyAreaDamage(impactPos, p.damage * 0.45, p.splashRadius, p.shooter);
       }
       this.explodeAt(impactPos, false, 1.5);
       if (window.soundFX) window.soundFX.playExplosion(false);

@@ -19,8 +19,11 @@ class InputManager {
     this.ghostGridPos = { gx: 0, gz: 0 };
     this.canPlaceCurrentGhost = false;
 
-    // Command Mode: 'normal', 'repair', 'sell', 'airstrike'
+    // Command Mode: 'normal', 'repair', 'sell', 'airstrike', 'attackmove'
     this.commandMode = 'normal';
+    this.orderCursor = 'select';
+    this.lastClickAt = 0;
+    this.lastClickUnitType = null;
 
     this.initListeners();
   }
@@ -159,6 +162,10 @@ class InputManager {
         this.selectionBoxEl.style.height = `${height}px`;
       }
     }
+
+    if (!this.placementBuildingType && !this.isBoxSelecting) {
+      this.refreshOrderCursor(pt);
+    }
   }
 
   onMouseUp(e) {
@@ -187,7 +194,7 @@ class InputManager {
         }
       } else if (worldPos) {
         // Single Click Selection
-        this.handleSingleClickSelection(pt.x, pt.y, worldPos);
+        this.handleSingleClickSelection(pt.x, pt.y, worldPos, e);
       }
 
       this.isBoxSelecting = false;
@@ -199,7 +206,7 @@ class InputManager {
     }
   }
 
-  handleSingleClickSelection(screenX, screenY, worldPos) {
+  handleSingleClickSelection(screenX, screenY, worldPos, ev) {
     const { entityManager, soundFX } = this.ctx;
 
     // Check clicked entity
@@ -246,6 +253,33 @@ class InputManager {
       return;
     }
 
+    if (this.commandMode === 'attackmove' && worldPos) {
+      entityManager.selectedUnits.forEach((u) => {
+        if (typeof u.attackMoveTo === 'function') u.attackMoveTo(worldPos.x, worldPos.z, this.ctx.pathfinding);
+        else u.moveTo(worldPos.x, worldPos.z, this.ctx.pathfinding);
+      });
+      if (soundFX) soundFX.playOrder();
+      this.setCommandMode('normal');
+      return;
+    }
+
+    const now = Date.now();
+    const isDouble = clickedEntity instanceof Unit && clickedEntity.type === this.lastClickUnitType && (now - this.lastClickAt) < 350;
+    this.lastClickAt = now;
+    this.lastClickUnitType = clickedEntity instanceof Unit ? clickedEntity.type : null;
+
+    if (isDouble && clickedEntity.faction === 'player') {
+      entityManager.selectAllOfType(clickedEntity.type, 'player');
+      if (soundFX) soundFX.playSelect();
+      return;
+    }
+
+    if (ev && ev.shiftKey && clickedEntity instanceof Unit && clickedEntity.faction === 'player') {
+      entityManager.toggleSelectUnit(clickedEntity);
+      if (soundFX) soundFX.playSelect();
+      return;
+    }
+
     entityManager.selectSingle(clickedEntity);
     if (clickedEntity && soundFX) {
       soundFX.playSelect();
@@ -272,8 +306,8 @@ class InputManager {
       return;
     }
 
-    // Reset special command modes
-    if (this.commandMode !== 'normal') {
+    // Reset special command modes (attack-move consumes the click as an order)
+    if (this.commandMode !== 'normal' && this.commandMode !== 'attackmove') {
       this.setCommandMode('normal');
       return;
     }
@@ -332,14 +366,32 @@ class InputManager {
         }
       });
       if (soundFX) soundFX.playOrder();
-    } else {
-      // MOVE ORDER
-      entityManager.selectedUnits.forEach(u => {
-        u.moveTo(worldPos.x, worldPos.z, pathfinding);
-      });
+    } else if (entityManager.selectedUnits.length === 0 && entityManager.selectedBuilding && entityManager.selectedBuilding.isProducer && entityManager.selectedBuilding.faction === 'player') {
+      entityManager.selectedBuilding.setRally(worldPos.x, worldPos.z);
+      entityManager.selectedBuilding.setRallyVisible(true);
       if (soundFX) soundFX.playOrder();
+    } else {
+      const friendly = this.getEntityAt(worldPos.x, worldPos.z, 'player');
+      const wantAttackMove = this.commandMode === 'attackmove' || (e && e.shiftKey);
+      if (friendly instanceof Unit && entityManager.selectedUnits.length && !entityManager.selectedUnits.includes(friendly)) {
+        entityManager.selectedUnits.forEach((u) => {
+          if (typeof u.followUnit === 'function') u.followUnit(friendly);
+        });
+        if (soundFX) soundFX.playOrder();
+      } else if (wantAttackMove) {
+        entityManager.selectedUnits.forEach((u) => {
+          if (typeof u.attackMoveTo === 'function') u.attackMoveTo(worldPos.x, worldPos.z, pathfinding);
+          else u.moveTo(worldPos.x, worldPos.z, pathfinding);
+        });
+        if (soundFX) soundFX.playOrder();
+        if (this.commandMode === 'attackmove') this.setCommandMode('normal');
+      } else {
+        entityManager.selectedUnits.forEach(u => {
+          u.moveTo(worldPos.x, worldPos.z, pathfinding);
+        });
+        if (soundFX) soundFX.playOrder();
+      }
 
-      // Notify mission manager that player moved units (advances tutorial!)
       if (missionManager) {
         missionManager.playerHasMovedUnits = true;
       }
@@ -480,8 +532,76 @@ class InputManager {
     if (mode === 'repair') vp.classList.add('cursor-repair');
     else if (mode === 'sell') vp.classList.add('cursor-sell');
     else if (mode === 'airstrike') vp.classList.add('cursor-attack');
+    else if (mode === 'attackmove') vp.classList.add('cursor-attackmove');
 
     if (window.hud) window.hud.updateModeButtons(mode);
+    const r = this.ctx.renderer;
+    this.refreshOrderCursor(r ? r.virtualCursor : null);
+  }
+
+  refreshOrderCursor(pt) {
+    const r = this.ctx.renderer;
+    if (!r) return;
+    if (this.placementBuildingType) {
+      this.applyOrderCursor('place');
+      return;
+    }
+    if (this.commandMode === 'repair') { this.applyOrderCursor('repair'); return; }
+    if (this.commandMode === 'sell') { this.applyOrderCursor('sell'); return; }
+    if (this.commandMode === 'airstrike') { this.applyOrderCursor('attack'); return; }
+
+    const pointer = pt || this.getPointer({ clientX: r.virtualCursor.x, clientY: r.virtualCursor.y });
+    const worldPos = r.getGroundIntersection(pointer.x, pointer.y);
+    const kind = this.resolveOrderCursor(worldPos);
+    this.applyOrderCursor(kind);
+  }
+
+  resolveOrderCursor(worldPos) {
+    const { entityManager, terrain } = this.ctx;
+    if (!entityManager) return 'select';
+    const units = entityManager.selectedUnits;
+    if (this.commandMode === 'attackmove' && units.length) return 'attackmove';
+    if (!worldPos) return units.length ? 'move' : 'select';
+
+    const enemy = this.getEntityAt(worldPos.x, worldPos.z, 'enemy');
+    const friend = this.getEntityAt(worldPos.x, worldPos.z, 'player');
+    const ore = terrain && terrain.getClosestOreDeposit
+      ? terrain.getClosestOreDeposit(worldPos.x, worldPos.z)
+      : null;
+    const onOre = ore && Math.hypot(ore.x - worldPos.x, ore.z - worldPos.z) <= (ore.radius || 4) + 1.5;
+
+    if (units.length) {
+      const hasHarvester = units.some((u) => u.type === 'harvester');
+      const hasEngineer = units.some((u) => u.type === 'engineer');
+      const hasCombat = units.some((u) => u.type !== 'harvester' && (u.spec && u.spec.damage > 0));
+      if (enemy) {
+        if (hasEngineer && enemy instanceof Building) return 'capture';
+        if (hasCombat) return 'attack';
+      }
+      if (hasHarvester && onOre) return 'harvest';
+      if (friend instanceof Unit && !units.includes(friend) && hasCombat) return 'follow';
+      return 'move';
+    }
+
+    if (entityManager.selectedBuilding && entityManager.selectedBuilding.isProducer && entityManager.selectedBuilding.faction === 'player') {
+      return 'rally';
+    }
+    return 'select';
+  }
+
+  applyOrderCursor(kind) {
+    this.orderCursor = kind || 'select';
+    const vp = document.getElementById('viewport');
+    if (vp && this.commandMode === 'normal') {
+      vp.classList.remove(
+        'cursor-attack', 'cursor-repair', 'cursor-sell', 'cursor-attackmove',
+        'cursor-harvest', 'cursor-move', 'cursor-follow', 'cursor-rally', 'cursor-capture', 'cursor-select'
+      );
+      vp.classList.add(`cursor-${this.orderCursor}`);
+    }
+    if (this.ctx.renderer && this.ctx.renderer.setOrderCursor) {
+      this.ctx.renderer.setOrderCursor(this.orderCursor);
+    }
   }
 
   executeAirstrikeAtMouse(clientX, clientY) {
@@ -531,8 +651,20 @@ class InputManager {
     // 'S' Stop Selected Units
     if (key === 's') {
       this.ctx.entityManager.selectedUnits.forEach(u => {
-        u.waypoints = [];
-        u.targetEntity = null;
+        if (typeof u.becomeIdle === 'function') u.becomeIdle();
+        else {
+          u.waypoints = [];
+          u.targetEntity = null;
+        }
+      });
+      if (this.ctx.soundFX) this.ctx.soundFX.playOrder();
+    }
+
+    // 'G' Guard current post
+    if (key === 'g') {
+      this.ctx.entityManager.selectedUnits.forEach((u) => {
+        u.stance = 'guard';
+        if (typeof u.becomeIdle === 'function') u.becomeIdle();
       });
       if (this.ctx.soundFX) this.ctx.soundFX.playOrder();
     }

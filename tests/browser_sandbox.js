@@ -316,7 +316,7 @@ function buildDocument() {
   selCard.appendChild(register(el('div', { id: 'selected-stats' })));
   const stanceRow = register(el('div', { id: 'stance-actions-row' }));
   selCard.appendChild(stanceRow);
-  ['aggressive', 'guard', 'hold'].forEach((s) => {
+  ['aggressive', 'guard', 'holdground', 'holdfire'].forEach((s) => {
     const b = register(el('button', { className: 'stance-btn action-btn', dataset: { stance: s } }));
     stanceRow.appendChild(b);
   });
@@ -331,6 +331,7 @@ function buildDocument() {
   sidebar.appendChild(register(el('span', { id: 'power-val' })));
   sidebar.appendChild(register(el('button', { id: 'btn-mode-repair' })));
   sidebar.appendChild(register(el('button', { id: 'btn-mode-sell' })));
+  sidebar.appendChild(register(el('button', { id: 'btn-mode-attackmove' })));
   sidebar.appendChild(register(el('button', { id: 'btn-mode-airstrike' })));
 
   const tabs = register(el('div', { id: 'build-tabs' }));

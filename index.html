@@ -9,7 +9,7 @@
   <script src="lib/three.min.js"></script>
 </head>
 <body>
-  <div id="game-cursor" class="hidden"></div>
+  <div id="game-cursor" class="hidden is-select"><span class="cursor-caption"></span></div>
   <div id="game-container">
     
     <!-- 3D Interactive Viewport -->
@@ -67,9 +67,10 @@
           </div>
         </div>
         <div class="selection-actions" id="stance-actions-row">
-          <button class="action-btn stance-btn active" data-stance="aggressive" title="Engage any enemy in sight">AGG</button>
-          <button class="action-btn stance-btn" data-stance="guard" title="Defend position">GRD</button>
-          <button class="action-btn stance-btn" data-stance="hold" title="Hold ground without moving">HLD</button>
+          <button class="action-btn stance-btn" data-stance="aggressive" title="Engage any enemy in sight">AGG</button>
+          <button class="action-btn stance-btn active" data-stance="guard" title="Defend position, then return">GRD</button>
+          <button class="action-btn stance-btn" data-stance="holdground" title="Hold ground without moving">HLD</button>
+          <button class="action-btn stance-btn" data-stance="holdfire" title="Do not fire unless ordered">HLF</button>
         </div>
       </div>
 
@@ -103,6 +104,7 @@
       <div id="command-modes-row">
         <button class="cmd-mode-btn" id="btn-mode-repair" title="Click a building to repair it">REPAIR</button>
         <button class="cmd-mode-btn" id="btn-mode-sell" title="Click a building to sell for 50% refund">SELL</button>
+        <button class="cmd-mode-btn" id="btn-mode-attackmove" title="Attack-move: engage enemies on the way (Shift+RMB)">ATK-MOVE</button>
         <button class="cmd-mode-btn" id="btn-mode-airstrike" disabled title="Requires active Radar Facility">AIRSTRIKE</button>
       </div>
 

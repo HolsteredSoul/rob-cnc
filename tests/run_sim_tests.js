@@ -225,6 +225,106 @@ function run() {
     results.push('PASS easy/medium/hard AI cadence and caps differ');
   }
 
+  // --- Hold-ground does not chase an out-of-range enemy ---
+  {
+    const ctx = makeCtx(g);
+    const holder = ctx.entityManager.spawnUnit('machine_gunner', 'player', 20, 20);
+    holder.stance = 'holdground';
+    holder.holdPosition();
+    const startX = holder.position.x;
+    const startZ = holder.position.z;
+    ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 20 + holder.attackRange + 12, 20);
+    tick(ctx, 2.0, 0.05);
+    const moved = Math.hypot(holder.position.x - startX, holder.position.z - startZ);
+    assert(moved < 1.5, 'holdground unit chased out of post (moved ' + moved.toFixed(2) + ')');
+    results.push('PASS holdground stays put (' + moved.toFixed(2) + ' wu)');
+  }
+
+  // --- Attack-move engages then continues to destination ---
+  {
+    const ctx = makeCtx(g);
+    const runner = ctx.entityManager.spawnUnit('machine_gunner', 'player', 10, 20);
+    const blocker = ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 18, 20);
+    runner.attackMoveTo(40, 20, ctx.pathfinding);
+    tick(ctx, 3.5, 0.05);
+    assert(blocker.hp < blocker.maxHp, 'attack-move did not engage enemy on the path');
+    assert(runner.order === 'attackMove' || runner.position.x > 16, 'attack-move unit did not advance (order=' + runner.order + ' x=' + runner.position.x.toFixed(1) + ')');
+    results.push('PASS attack-move engaged and advanced');
+  }
+
+  // --- Producer rally: spawned unit attack-moves toward the flag ---
+  {
+    const ctx = makeCtx(g);
+    ctx.economy.reset(2000);
+    ctx.entityManager.spawnBuilding('command_center', 'player', 2, 2, { complete: true });
+    const barracks = ctx.entityManager.spawnBuilding('barracks', 'player', 6, 2, { complete: true });
+    barracks.setRally(40, 30);
+    ctx.economy.spendCredits('player', g.UNIT_SPECS.machine_gunner.cost);
+    barracks.queueUnit('machine_gunner');
+    const before = ctx.entityManager.getPlayerUnits().length;
+    tick(ctx, 6.0, 0.05);
+    const spawned = ctx.entityManager.getPlayerUnits().filter((u) => u.type === 'machine_gunner');
+    assert(spawned.length > before || spawned.length >= 1, 'rallied unit did not spawn');
+    const gunner = spawned[spawned.length - 1];
+    assert(gunner.order === 'attackMove' || Math.hypot(gunner.destX - 40, gunner.destZ - 30) < 4, 'spawned unit did not rally (order=' + gunner.order + ' dest=' + gunner.destX + ',' + gunner.destZ + ')');
+    results.push('PASS production rally attack-move');
+  }
+
+  // --- Veterancy: 4 unit-kills raises rank and maxHp ---
+  {
+    const ctx = makeCtx(g);
+    const vet = ctx.entityManager.spawnUnit('machine_gunner', 'player', 12, 12);
+    const baseMax = vet.maxHp;
+    for (let i = 0; i < 4; i++) {
+      const dummy = ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 40 + i, 40);
+      dummy.takeDamage(9999, vet);
+    }
+    assert(vet.rank === 1, 'rank after 4 kills should be 1 (got ' + vet.rank + ', kills=' + vet.kills + ')');
+    assert(vet.maxHp > baseMax, 'veterancy did not raise maxHp (' + vet.maxHp + ' vs ' + baseMax + ')');
+    results.push('PASS veterancy rank 1 at 4 kills (hp ' + baseMax + ' → ' + vet.maxHp + ')');
+  }
+
+  // --- Air filter: rifle cannot hit helicopters; rocket turret can ---
+  {
+    const ctx = makeCtx(g);
+    ctx.economy.reset(5000);
+    ctx.entityManager.spawnBuilding('command_center', 'player', 2, 2, { complete: true });
+    ctx.entityManager.spawnBuilding('power_plant', 'player', 6, 2, { complete: true });
+    const rifle = ctx.entityManager.spawnUnit('machine_gunner', 'player', 20, 20);
+    const heli = ctx.entityManager.spawnUnit('helicopter', 'enemy', 22, 20);
+    const heliHp = heli.hp;
+    rifle.stance = 'aggressive';
+    rifle.attackTarget(heli, ctx.pathfinding);
+    tick(ctx, 2.0, 0.05);
+    assert(heli.hp === heliHp, 'rifleman damaged a helicopter (hp ' + heli.hp + '/' + heliHp + ')');
+    heli.takeDamage(9999);
+
+    const turret = ctx.entityManager.spawnBuilding('turret_rocket', 'player', 10, 10, { complete: true });
+    const heli2 = ctx.entityManager.spawnUnit('helicopter', 'enemy', turret.position.x + 4, turret.position.z);
+    const h2 = heli2.hp;
+    ctx.economy.update(0, ctx.entityManager, null);
+    tick(ctx, 2.2, 0.05);
+    assert(heli2.hp < h2, 'rocket turret did not hit helicopter (hp ' + heli2.hp + '/' + h2 + ')');
+    results.push('PASS air filter: rifles miss choppers, rocket turret hits');
+  }
+
+  // --- Unit health bar shows when selected or damaged ---
+  {
+    const ctx = makeCtx(g);
+    const u = ctx.entityManager.spawnUnit('machine_gunner', 'player', 16, 16);
+    assert(!!u.healthBar, 'unit must have a health bar mesh');
+    u.updateHealthBar(ctx);
+    assert(u.healthBar.visible === false, 'full-hp unselected unit should hide the bar');
+    u.setSelected(true);
+    assert(u.healthBar.visible === true, 'selected unit should show the bar');
+    u.setSelected(false);
+    u.takeDamage(40);
+    assert(u.healthBar.visible === true, 'damaged unit should show the bar');
+    const ratio = u.hp / u.maxHp;
+    assert(u.healthBar.userData.fill.scale.x < 0.99, 'fill scale should shrink with missing HP (scale=' + u.healthBar.userData.fill.scale.x + ' hpRatio=' + ratio.toFixed(2) + ')');
+    results.push('PASS unit health bar selected/damaged visibility');
+  }
+
   results.forEach((line) => console.log(line));
   console.log('ALL_SIM_TESTS_PASSED ' + results.length);
   process.exit(0);

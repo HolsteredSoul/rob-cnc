@@ -122,7 +122,8 @@ const BUILDING_SPECS = {
     category: 'defense',
     attackRange: 18,
     damage: 18,
-    attackCooldown: 0.35
+    attackCooldown: 0.35,
+    canTargetAir: true
   },
   turret_rocket: {
     name: 'Rocket Turret',
@@ -133,9 +134,12 @@ const BUILDING_SPECS = {
     buildTime: 8,
     footprint: { w: 2, h: 2 },
     category: 'defense',
-    attackRange: 22,
+    attackRange: 26,
     damage: 70,
-    attackCooldown: 1.8
+    attackCooldown: 1.8,
+    canTargetAir: true,
+    preferAir: true,
+    splashRadius: 3.5
   },
   turret_laser: {
     name: 'Laser Obelisk',
@@ -149,7 +153,8 @@ const BUILDING_SPECS = {
     attackRange: 24,
     damage: 140,
     attackCooldown: 1.0,
-    isLaser: true
+    isLaser: true,
+    canTargetAir: false
   },
   wall: {
     name: 'Perimeter Wall',
@@ -210,6 +215,9 @@ class Building {
     this.attackRange = this.spec.attackRange || 0;
     this.damage = this.spec.damage || 0;
     this.attackCooldown = this.spec.attackCooldown || 1.0;
+    this.canTargetAir = this.spec.canTargetAir === true;
+    this.preferAir = !!this.spec.preferAir;
+    this.splashRadius = this.spec.splashRadius || 0;
     this.cooldownTimer = 0;
     this.targetEntity = null;
 
@@ -217,15 +225,24 @@ class Building {
     this.productionQueue = [];
     this.currentProduction = null;
     this.productionProgress = 0;
+    this.isProducer = !!(this.spec.produces && this.spec.produces.length) || type === 'ore_refinery';
     this.rallyPoint = this.position.clone().add(new THREE.Vector3(0, 0, (this.footprint.h * this.tileSize) / 2 + 5));
 
     // Create 3D Mesh
     this.mesh = this.createMesh(type, faction);
     this.mesh.position.copy(this.position);
-    if (this.isBuilding) {
-      this.mesh.scale.set(1, 0.3, 1);
-    }
     scene.add(this.mesh);
+
+    this.scaffold = null;
+    if (this.isBuilding) {
+      this.mesh.scale.set(1, 0.08, 1);
+      this.scaffold = this.createScaffold();
+      scene.add(this.scaffold);
+    }
+
+    this.rallyMarker = this.createRallyMarker();
+    scene.add(this.rallyMarker);
+    this.rallyMarker.visible = false;
 
     // Mark terrain grid as blocked
     this.setTerrainGrid(terrain, true);
@@ -276,6 +293,83 @@ class Building {
     this.selectionRing = this.createSelectionRing();
     this.mesh.add(this.selectionRing);
     this.selectionRing.visible = false;
+    if (this.rallyMarker && this.rallyMarker.userData.flag) {
+      this.rallyMarker.userData.flag.material.color.setHex(newFaction === 'player' ? 0x33ff66 : 0xff3333);
+    }
+  }
+
+  createScaffold() {
+    const w = this.footprint.w * this.tileSize;
+    const d = this.footprint.h * this.tileSize;
+    const group = new THREE.Group();
+    group.position.copy(this.position);
+
+    const pad = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 0.95, 0.18, d * 0.95),
+      new THREE.MeshLambertMaterial({ color: 0x3a3328 })
+    );
+    pad.position.y = 0.09;
+    group.add(pad);
+
+    const beamMat = new THREE.MeshLambertMaterial({ color: 0xc4a35a });
+    const posts = [
+      [-w * 0.42, -d * 0.42], [w * 0.42, -d * 0.42],
+      [-w * 0.42, d * 0.42], [w * 0.42, d * 0.42]
+    ];
+    posts.forEach((p) => {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 3.2, 0.12), beamMat);
+      post.position.set(p[0], 1.6, p[1]);
+      group.add(post);
+    });
+    const cross = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 0.88, 0.08, 0.08),
+      beamMat
+    );
+    cross.position.set(0, 3.1, 0);
+    group.add(cross);
+
+    const beacon = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+    );
+    beacon.position.set(0, 3.4, 0);
+    group.add(beacon);
+    group.userData.beacon = beacon;
+    return group;
+  }
+
+  createRallyMarker() {
+    const group = new THREE.Group();
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6),
+      new THREE.MeshLambertMaterial({ color: 0x222222 })
+    );
+    pole.position.y = 1.2;
+    const flag = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.1, 0.7),
+      new THREE.MeshBasicMaterial({ color: this.faction === 'player' ? 0x33ff66 : 0xff3333, side: THREE.DoubleSide })
+    );
+    flag.position.set(0.55, 2.0, 0);
+    group.add(pole, flag);
+    group.userData.flag = flag;
+    this.updateRallyMarkerPos(group);
+    return group;
+  }
+
+  updateRallyMarkerPos(marker) {
+    const m = marker || this.rallyMarker;
+    if (!m || !this.rallyPoint) return;
+    m.position.set(this.rallyPoint.x, 0, this.rallyPoint.z);
+  }
+
+  setRally(wx, wz) {
+    if (!this.isProducer) return;
+    this.rallyPoint = new THREE.Vector3(wx, 0, wz);
+    this.updateRallyMarkerPos();
+  }
+
+  setRallyVisible(visible) {
+    if (this.rallyMarker) this.rallyMarker.visible = !!(visible && this.isProducer && this.rallyPoint);
   }
 
   createSelectionRing() {
@@ -296,6 +390,7 @@ class Building {
     if (this.selectionRing) {
       this.selectionRing.visible = selected;
     }
+    this.setRallyVisible(selected);
   }
 
   setTerrainGrid(terrain, blocked) {
@@ -345,6 +440,10 @@ class Building {
     if (this.mesh) {
       this.mesh.scale.set(1, 1, 1);
     }
+    if (this.scaffold && this.scaffold.parent) {
+      this.scaffold.parent.remove(this.scaffold);
+    }
+    this.scaffold = null;
     if (this.type === 'command_center_advanced') {
       TechTree.upgradeCommandCenter();
     }
@@ -366,7 +465,14 @@ class Building {
       const buildTime = Math.max(0.25, this.spec.buildTime || 1);
       this.constructionProgress = Math.min(1, this.constructionProgress + delta / buildTime);
       if (this.mesh) {
-        this.mesh.scale.set(1, 0.3 + 0.7 * this.constructionProgress, 1);
+        this.mesh.scale.set(1, 0.08 + 0.92 * this.constructionProgress, 1);
+      }
+      if (this.scaffold) {
+        const beacon = this.scaffold.userData.beacon;
+        if (beacon) beacon.material.opacity = 0.45 + 0.55 * Math.abs(Math.sin(this.constructionProgress * 12));
+        if (beacon && beacon.material) {
+          beacon.material.transparent = true;
+        }
       }
       if (this.constructionProgress >= 1) {
         this.finishConstruction(gameContext);
@@ -413,8 +519,11 @@ class Building {
 
     const { entityManager, projectileManager, soundFX } = gameContext;
 
-    if (!this.targetEntity || !this.targetEntity.isAlive) {
-      this.targetEntity = entityManager.findClosestEnemy(this.position, this.attackRange, this.faction);
+    if (!this.targetEntity || !this.targetEntity.isAlive || (this.targetEntity.isAir && !this.canTargetAir)) {
+      this.targetEntity = entityManager.findClosestEnemy(this.position, this.attackRange, this.faction, {
+        canTargetAir: this.canTargetAir,
+        preferAir: this.preferAir
+      });
     }
 
     if (!this.targetEntity) return;
@@ -447,7 +556,7 @@ class Building {
         projectileManager.spawnBullet(muzzleWorld, targetPos, this.targetEntity, this.damage, this);
         if (soundFX && this.isAudibleToPlayer(gameContext)) soundFX.playMachineGun();
       } else if (this.type === 'turret_rocket') {
-        projectileManager.spawnRocket(muzzleWorld, targetPos, this.targetEntity, this.damage, this);
+        projectileManager.spawnRocket(muzzleWorld, targetPos, this.targetEntity, this.damage, this, this.splashRadius);
         if (soundFX && this.isAudibleToPlayer(gameContext)) soundFX.playRocketLaunch();
       } else if (this.type === 'turret_laser') {
         projectileManager.spawnLaserBeam(
@@ -497,9 +606,8 @@ class Building {
           spawnPos.z
         );
 
-        // Move to rally point
         if (newUnit && this.rallyPoint) {
-          newUnit.moveTo(this.rallyPoint.x, this.rallyPoint.z, gameContext.pathfinding);
+          this.sendUnitToRally(newUnit, gameContext);
         }
 
         if (this.faction === 'player' && gameContext.soundFX) {
@@ -512,12 +620,37 @@ class Building {
     }
   }
 
+  sendUnitToRally(unit, gameContext) {
+    const rx = this.rallyPoint.x;
+    const rz = this.rallyPoint.z;
+    if (unit.type === 'harvester') {
+      const ore = gameContext.terrain && gameContext.terrain.getClosestOreDeposit
+        ? gameContext.terrain.getClosestOreDeposit(rx, rz)
+        : null;
+      if (ore && Math.hypot(ore.x - rx, ore.z - rz) <= (ore.radius || 4) + 2) {
+        unit.harvestOre(ore, gameContext.pathfinding);
+      } else {
+        unit.order = 'harvest';
+        unit.setPathTo(rx, rz, gameContext.pathfinding);
+      }
+      return;
+    }
+    if (typeof unit.attackMoveTo === 'function') {
+      unit.attackMoveTo(rx, rz, gameContext.pathfinding);
+    } else {
+      unit.moveTo(rx, rz, gameContext.pathfinding);
+    }
+  }
+
   takeDamage(amount, attacker) {
     if (!this.isAlive) return;
     this.hp = Math.max(0, this.hp - amount);
 
     if (this.hp <= 0) {
       this.die(attacker);
+    }
+    if (this.faction === 'player' && typeof window !== 'undefined' && window.gameContext && window.gameContext.entityManager) {
+      window.gameContext.entityManager.notePlayerAlert(this.position.x, this.position.z);
     }
   }
 
@@ -526,6 +659,8 @@ class Building {
     if (this.selectionRing) {
       this.selectionRing.visible = false;
     }
+    if (this.scaffold && this.scaffold.parent) this.scaffold.parent.remove(this.scaffold);
+    if (this.rallyMarker && this.rallyMarker.parent) this.rallyMarker.parent.remove(this.rallyMarker);
   }
 
   storeOre(amount) {

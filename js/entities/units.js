@@ -42,7 +42,8 @@ const UNIT_SPECS = {
     sightRange: 20,
     isVehicle: false,
     isAir: false,
-    antiAir: true
+    antiAir: true,
+    canTargetAir: true
   },
   light_tracks: {
     name: 'Light Tracks',
@@ -136,7 +137,8 @@ const UNIT_SPECS = {
     cost: 750,
     sightRange: 24,
     isVehicle: true,
-    isAir: true
+    isAir: true,
+    canTargetAir: true
   },
   harrier_jet: {
     name: 'Harrier Jet',
@@ -149,9 +151,16 @@ const UNIT_SPECS = {
     cost: 1200,
     sightRange: 28,
     isVehicle: true,
-    isAir: true
+    isAir: true,
+    canTargetAir: true
   }
 };
+
+const GUARD_LEASH = 14;
+const AGGRO_LEASH = 32;
+const VET_THRESHOLDS = [4, 10];
+const VET_DMG_MULT = [1, 1.1, 1.2];
+const VET_HP_MULT = [1, 1.1, 1.2];
 
 let nextUnitId = 1;
 
@@ -177,12 +186,22 @@ class Unit {
     this.targetPos = this.position.clone();
     this.waypoints = [];
     this.targetEntity = null;
+    this.followTarget = null;
     this.isAlive = true;
     this.cooldownTimer = 0;
     this.kills = 0;
+    this.baseHp = this.spec.hp;
+    this.baseDamage = this.spec.damage;
+    this.canTargetAir = !!(this.spec.canTargetAir || this.spec.antiAir);
 
-    // Stance: 'aggressive', 'guard', 'hold'
-    this.stance = 'aggressive';
+    // idle | move | attackMove | attack | hold | follow | harvest
+    this.order = this.type === 'harvester' ? 'harvest' : 'idle';
+    // aggressive | guard | holdground | holdfire
+    this.stance = 'guard';
+    this.guardX = x;
+    this.guardZ = z;
+    this.destX = x;
+    this.destZ = z;
 
     // Harvester specific state
     this.cargo = 0;
@@ -200,6 +219,84 @@ class Unit {
     this.selectionRing = this.createSelectionRing();
     this.mesh.add(this.selectionRing);
     this.selectionRing.visible = false;
+
+    this.vetChevrons = this.createVetChevrons();
+    this.mesh.add(this.vetChevrons);
+
+    this.selected = false;
+    this.healthBar = this.createHealthBar();
+    scene.add(this.healthBar);
+  }
+
+  get rank() {
+    let r = 0;
+    for (let i = 0; i < VET_THRESHOLDS.length; i++) {
+      if (this.kills >= VET_THRESHOLDS[i]) r++;
+    }
+    return r;
+  }
+
+  applyVeterancy() {
+    const r = this.rank;
+    const hpMult = VET_HP_MULT[r] || 1;
+    const dmgMult = VET_DMG_MULT[r] || 1;
+    const newMax = Math.round(this.baseHp * hpMult);
+    if (newMax > this.maxHp) {
+      this.hp += (newMax - this.maxHp);
+    }
+    this.maxHp = newMax;
+    this.damage = this.baseDamage * dmgMult;
+    this.updateVetChevrons();
+    this.updateHealthBar();
+  }
+
+  createVetChevrons() {
+    const group = new THREE.Group();
+    group.visible = false;
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffd700, side: THREE.DoubleSide, depthTest: false });
+    for (let i = 0; i < 2; i++) {
+      const geo = new THREE.RingGeometry(0.22, 0.38, 3);
+      geo.rotateX(-Math.PI / 2);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(0, 0.12 + i * 0.08, -(this.isVehicle ? 1.6 : 0.85) - i * 0.12);
+      mesh.visible = false;
+      group.add(mesh);
+    }
+    return group;
+  }
+
+  updateVetChevrons() {
+    if (!this.vetChevrons) return;
+    const r = this.rank;
+    this.vetChevrons.visible = r > 0;
+    this.vetChevrons.children.forEach((c, i) => {
+      c.visible = i < r;
+    });
+  }
+
+  canEngage(entity) {
+    if (!entity || !entity.isAlive) return false;
+    if (entity.isAir && !this.canTargetAir) return false;
+    return true;
+  }
+
+  setGuardPost(x, z) {
+    this.guardX = x;
+    this.guardZ = z;
+  }
+
+  becomeIdle() {
+    this.waypoints = [];
+    this.targetEntity = null;
+    this.followTarget = null;
+    this.setGuardPost(this.position.x, this.position.z);
+    if (this.type === 'harvester') {
+      this.order = 'harvest';
+      if (this.harvesterState === 'MINING') return;
+      this.harvesterState = 'IDLE';
+    } else {
+      this.order = 'idle';
+    }
   }
 
   createMesh(type, faction) {
@@ -233,42 +330,137 @@ class Unit {
   }
 
   setSelected(selected) {
+    this.selected = !!selected;
     if (this.selectionRing) {
-      this.selectionRing.visible = selected;
+      this.selectionRing.visible = this.selected;
     }
+    this.updateHealthBar();
   }
 
-  // Issue move command with pathfinder waypoints
-  moveTo(destX, destZ, pathfinding) {
-    this.targetEntity = null;
-    if (this.type === 'harvester' && this.harvesterState === 'MINING') {
-      this.harvesterState = 'IDLE';
+  createHealthBar() {
+    const width = this.isVehicle ? 2.4 : 1.5;
+    const height = 0.18;
+    const group = new THREE.Group();
+    const bg = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ color: 0x111111, depthTest: false, depthWrite: false, side: THREE.DoubleSide })
+    );
+    const fill = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ color: 0x33ff33, depthTest: false, depthWrite: false, side: THREE.DoubleSide })
+    );
+    fill.position.z = 0.02;
+    bg.renderOrder = 20;
+    fill.renderOrder = 21;
+    group.add(bg, fill);
+    group.userData.fill = fill;
+    group.userData.width = width;
+    group.visible = false;
+    return group;
+  }
+
+  healthBarHeight() {
+    if (this.type === 'harrier_jet') return 3.2;
+    if (this.isAir) return 2.4;
+    if (this.type === 'laser_colossus' || this.type === 'battle_tank') return 4.0;
+    if (this.isVehicle) return 3.2;
+    return 2.35;
+  }
+
+  updateHealthBar(gameContext) {
+    const bar = this.healthBar;
+    if (!bar) return;
+    const ratio = this.maxHp > 0 ? Math.max(0, Math.min(1, this.hp / this.maxHp)) : 0;
+    const show = this.isAlive && (this.selected || ratio < 0.999);
+    bar.visible = show && (this.mesh ? this.mesh.visible !== false : true);
+    if (!bar.visible) return;
+
+    bar.position.set(this.position.x, this.position.y + this.healthBarHeight(), this.position.z);
+    const cam = gameContext && gameContext.renderer && gameContext.renderer.camera;
+    if (cam) {
+      bar.lookAt(cam.position);
     }
 
+    const fill = bar.userData.fill;
+    const width = bar.userData.width;
+    fill.scale.x = Math.max(0.02, ratio);
+    fill.position.x = -((1 - fill.scale.x) * width) / 2;
+    if (ratio < 0.3) fill.material.color.setHex(0xff3333);
+    else if (ratio < 0.6) fill.material.color.setHex(0xffaa00);
+    else fill.material.color.setHex(0x33ff33);
+  }
+
+  setPathTo(destX, destZ, pathfinding) {
+    this.destX = destX;
+    this.destZ = destZ;
     if (this.isAir) {
-      // Aircraft fly in direct line
       this.waypoints = [{ x: destX, z: destZ }];
     } else if (pathfinding) {
       this.waypoints = pathfinding.findPath(this.position.x, this.position.z, destX, destZ);
       if (!this.waypoints || this.waypoints.length === 0) {
         this.waypoints = [{ x: destX, z: destZ }];
       } else {
-        this.waypoints.shift(); // Remove starting tile
+        this.waypoints.shift();
       }
     } else {
       this.waypoints = [{ x: destX, z: destZ }];
     }
   }
 
+  // Issue move command with pathfinder waypoints
+  moveTo(destX, destZ, pathfinding) {
+    this.targetEntity = null;
+    this.followTarget = null;
+    this.order = 'move';
+    if (this.type === 'harvester' && this.harvesterState === 'MINING') {
+      this.harvesterState = 'IDLE';
+    }
+    this.setPathTo(destX, destZ, pathfinding);
+  }
+
+  attackMoveTo(destX, destZ, pathfinding) {
+    if (this.type === 'harvester' || this.spec.damage <= 0) {
+      this.moveTo(destX, destZ, pathfinding);
+      return;
+    }
+    this.targetEntity = null;
+    this.followTarget = null;
+    this.order = 'attackMove';
+    this.setPathTo(destX, destZ, pathfinding);
+  }
+
   // Issue attack order against specific entity
   attackTarget(entity, pathfinding) {
+    if (this.type === 'harvester') return;
+    if (!this.canEngage(entity)) return;
+    this.followTarget = null;
     this.targetEntity = entity;
-    if (this.type === 'harvester') return; // Harvester does not attack
-
+    this.order = 'attack';
     const dist = this.position.distanceTo(entity.position);
     if (dist > this.attackRange && pathfinding) {
-      this.moveTo(entity.position.x, entity.position.z, pathfinding);
+      this.setPathTo(entity.position.x, entity.position.z, pathfinding);
     }
+  }
+
+  followUnit(leader) {
+    if (!leader || leader === this || this.type === 'harvester') return;
+    this.followTarget = leader;
+    this.targetEntity = null;
+    this.order = 'follow';
+    this.waypoints = [];
+  }
+
+  holdPosition() {
+    if (this.type === 'harvester') {
+      this.becomeIdle();
+      return;
+    }
+    this.order = 'hold';
+    this.stance = 'holdground';
+    this.waypoints = [];
+    this.followTarget = null;
+    this.targetEntity = null;
+    this.setGuardPost(this.position.x, this.position.z);
   }
 
   // Issue harvest order
@@ -276,7 +468,10 @@ class Unit {
     if (this.type !== 'harvester') return;
     this.targetOreNode = oreNode;
     this.harvesterState = 'SEEKING_ORE';
-    this.moveTo(oreNode.x, oreNode.z, pathfinding);
+    this.order = 'harvest';
+    this.targetEntity = null;
+    this.followTarget = null;
+    this.setPathTo(oreNode.x, oreNode.z, pathfinding);
   }
 
   // Issue capture order for Combat Engineer
@@ -331,18 +526,21 @@ class Unit {
     if (this.type === 'harvester') {
       this.updateHarvester(delta, gameContext);
       this.updateMovement(delta);
+      this.updateHealthBar(gameContext);
       return;
     }
 
     // Aircraft circling / flyby logic for Harrier
     if (this.type === 'harrier_jet') {
       this.updateHarrier(delta, gameContext);
+      this.updateHealthBar(gameContext);
       return;
     }
 
     // Combat & Movement logic
-    this.updateCombat(delta, gameContext);
+    this.updateOrders(delta, gameContext);
     this.updateMovement(delta);
+    this.updateHealthBar(gameContext);
   }
 
   updateAnimations(delta) {
@@ -373,7 +571,12 @@ class Unit {
 
     if (dist < 0.8) {
       this.waypoints.shift();
-      if (this.waypoints.length === 0) return;
+      if (this.waypoints.length === 0) {
+        if (this.order === 'move' || this.order === 'attackMove') {
+          this.becomeIdle();
+        }
+        return;
+      }
     }
 
     dir.normalize();
@@ -390,47 +593,176 @@ class Unit {
     this.mesh.position.z = this.position.z;
   }
 
-  updateCombat(delta, gameContext) {
-    const { entityManager, projectileManager, soundFX } = gameContext;
+  acquireEnemy(gameContext, radius) {
+    const { entityManager } = gameContext;
+    if (!entityManager || this.spec.damage <= 0) return null;
+    return entityManager.findClosestEnemy(this.position, radius, this.faction, {
+      canTargetAir: this.canTargetAir,
+      preferAir: !!this.spec.antiAir
+    });
+  }
 
-    // Auto-acquire target if idle or in aggressive stance
-    if (!this.targetEntity || !this.targetEntity.isAlive) {
-      this.targetEntity = null;
-      if (this.stance !== 'hold') {
-        this.targetEntity = entityManager.findClosestEnemy(this.position, this.attackRange * 1.1, this.faction);
-      }
+  fireIfInRange(gameContext) {
+    if (this.stance === 'holdfire' || this.spec.damage <= 0) return;
+    if (!this.targetEntity || !this.targetEntity.isAlive || !this.canEngage(this.targetEntity)) {
+      this.targetEntity = this.acquireEnemy(gameContext, this.attackRange);
     }
-
     if (!this.targetEntity) return;
-
     const dist = this.position.distanceTo(this.targetEntity.position);
-
-    // If within range, engage!
     if (dist <= this.attackRange) {
-      // Stop moving while actively shooting (unless helicopter)
-      if (!this.isAir) {
-        this.waypoints = [];
-      }
-
-      // Rotate turret or body towards target
-      const lookDir = this.targetEntity.position.clone().sub(this.position);
-      const angle = Math.atan2(lookDir.x, lookDir.z);
-
-      if (this.mesh.userData.turret) {
-        // Rotate turret independently
-        this.mesh.userData.turret.rotation.y = angle - this.mesh.rotation.y;
-      } else {
-        this.mesh.rotation.y = THREE.MathUtils.lerp(this.mesh.rotation.y, angle, 14 * delta);
-      }
-
-      // Fire weapon
+      this.aimAt(this.targetEntity, gameContext, 0);
       if (this.cooldownTimer <= 0) {
         this.fireWeapon(this.targetEntity, gameContext);
         this.cooldownTimer = this.attackCooldown;
       }
-    } else if (this.stance === 'aggressive' && this.waypoints.length === 0) {
-      // Chase enemy if aggressive
-      this.moveTo(this.targetEntity.position.x, this.targetEntity.position.z, gameContext.pathfinding);
+    }
+  }
+
+  aimAt(entity, gameContext, delta) {
+    const lookDir = entity.position.clone().sub(this.position);
+    const angle = Math.atan2(lookDir.x, lookDir.z);
+    if (this.mesh.userData.turret) {
+      this.mesh.userData.turret.rotation.y = angle - this.mesh.rotation.y;
+    } else if (delta > 0) {
+      this.mesh.rotation.y = THREE.MathUtils.lerp(this.mesh.rotation.y, angle, 14 * delta);
+    } else {
+      this.mesh.rotation.y = angle;
+    }
+  }
+
+  engageTarget(entity, gameContext, delta, stopToShoot) {
+    if (!this.canEngage(entity)) {
+      this.targetEntity = null;
+      return false;
+    }
+    const dist = this.position.distanceTo(entity.position);
+    if (dist <= this.attackRange) {
+      if (stopToShoot && !this.isAir) this.waypoints = [];
+      this.aimAt(entity, gameContext, delta);
+      if (this.cooldownTimer <= 0) {
+        this.fireWeapon(entity, gameContext);
+        this.cooldownTimer = this.attackCooldown;
+      }
+      return true;
+    }
+    if (gameContext.pathfinding && (this.waypoints.length === 0 || dist > this.attackRange * 1.4)) {
+      this.setPathTo(entity.position.x, entity.position.z, gameContext.pathfinding);
+    }
+    return true;
+  }
+
+  updateOrders(delta, gameContext) {
+    if (this.spec.damage <= 0 && this.order !== 'follow') {
+      this.fireIfInRange(gameContext);
+      return;
+    }
+
+    switch (this.order) {
+      case 'move':
+        this.fireIfInRange(gameContext);
+        break;
+      case 'attack': {
+        if (!this.targetEntity || !this.targetEntity.isAlive) {
+          this.targetEntity = this.stance === 'holdfire' ? null : this.acquireEnemy(gameContext, this.sightRange);
+          if (this.targetEntity) {
+            this.engageTarget(this.targetEntity, gameContext, delta, true);
+          } else {
+            this.becomeIdle();
+          }
+        } else {
+          this.engageTarget(this.targetEntity, gameContext, delta, true);
+        }
+        break;
+      }
+      case 'attackMove': {
+        if (this.stance !== 'holdfire') {
+          const t = this.acquireEnemy(gameContext, this.sightRange);
+          if (t) {
+            this.targetEntity = t;
+            this.engageTarget(t, gameContext, delta, true);
+            break;
+          }
+        }
+        this.targetEntity = null;
+        if (this.waypoints.length === 0 && gameContext.pathfinding) {
+          this.setPathTo(this.destX, this.destZ, gameContext.pathfinding);
+        }
+        break;
+      }
+      case 'hold':
+        this.fireIfInRange(gameContext);
+        this.waypoints = [];
+        break;
+      case 'follow':
+        this.updateFollow(delta, gameContext);
+        break;
+      default:
+        this.updateAutonomous(delta, gameContext);
+        break;
+    }
+  }
+
+  updateFollow(delta, gameContext) {
+    const leader = this.followTarget;
+    if (!leader || !leader.isAlive) {
+      this.becomeIdle();
+      return;
+    }
+    if (this.stance !== 'holdfire' && this.spec.damage > 0) {
+      const t = this.acquireEnemy(gameContext, this.attackRange * 1.2);
+      if (t) {
+        const distToLeader = this.position.distanceTo(leader.position);
+        if (this.position.distanceTo(t.position) <= this.attackRange) {
+          this.engageTarget(t, gameContext, delta, false);
+        } else if (distToLeader <= GUARD_LEASH) {
+          this.engageTarget(t, gameContext, delta, false);
+          return;
+        }
+      }
+    }
+    const gap = (this.isVehicle ? 3.2 : 2.2) + (leader.isVehicle ? 3.2 : 2.2);
+    const dist = this.position.distanceTo(leader.position);
+    if (dist <= gap) {
+      this.waypoints = [];
+      return;
+    }
+    this.setPathTo(leader.position.x, leader.position.z, gameContext.pathfinding);
+  }
+
+  updateAutonomous(delta, gameContext) {
+    if (this.spec.damage <= 0 || this.stance === 'holdfire') return;
+    if (this.stance === 'holdground') {
+      this.fireIfInRange(gameContext);
+      return;
+    }
+
+    const sight = this.stance === 'aggressive' ? this.sightRange * 1.6 : this.sightRange;
+    const leash = this.stance === 'aggressive' ? AGGRO_LEASH : GUARD_LEASH;
+    const t = this.acquireEnemy(gameContext, sight);
+    if (t) {
+      const dist = this.position.distanceTo(t.position);
+      if (dist <= this.attackRange) {
+        this.engageTarget(t, gameContext, delta, true);
+        return;
+      }
+      const fromPost = Math.hypot(this.position.x - this.guardX, this.position.z - this.guardZ);
+      if (fromPost <= leash) {
+        this.targetEntity = t;
+        this.engageTarget(t, gameContext, delta, true);
+        return;
+      }
+    }
+    this.returnToGuard(gameContext);
+  }
+
+  returnToGuard(gameContext) {
+    const dist = Math.hypot(this.position.x - this.guardX, this.position.z - this.guardZ);
+    if (dist <= 1.2) {
+      this.waypoints = [];
+      return;
+    }
+    if (this.waypoints.length === 0) {
+      this.setPathTo(this.guardX, this.guardZ, gameContext.pathfinding);
     }
   }
 
@@ -645,9 +977,16 @@ class Unit {
 
     if (this.hp <= 0) {
       this.die(attacker);
-    } else if (!this.targetEntity && attacker && attacker.isAlive && this.stance !== 'hold') {
-      // Retaliate
-      this.targetEntity = attacker;
+    } else {
+      this.updateHealthBar();
+      if (attacker && attacker.isAlive && this.stance !== 'holdfire' && this.stance !== 'holdground') {
+        if (!this.targetEntity && this.canEngage(attacker) && this.order === 'idle') {
+          this.targetEntity = attacker;
+        }
+      }
+    }
+    if (this.faction === 'player' && typeof window !== 'undefined' && window.gameContext && window.gameContext.entityManager) {
+      window.gameContext.entityManager.notePlayerAlert(this.position.x, this.position.z);
     }
   }
 
@@ -655,9 +994,13 @@ class Unit {
     this.isAlive = false;
     if (attacker && attacker.kills !== undefined) {
       attacker.kills++;
+      if (typeof attacker.applyVeterancy === 'function') attacker.applyVeterancy();
     }
     if (this.selectionRing) {
       this.selectionRing.visible = false;
+    }
+    if (this.healthBar) {
+      this.healthBar.visible = false;
     }
   }
 

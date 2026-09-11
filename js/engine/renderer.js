@@ -38,6 +38,7 @@ class GameRenderer {
     this.lockRoot = null;
     this.cursorEl = null;
     this.lockHintEl = null;
+    this.orderCursor = 'select';
     this._lockWarmup = 0;
     
     // Map bounds (clamping)
@@ -264,12 +265,29 @@ class GameRenderer {
     this.syncCursorHud();
   }
 
+  setOrderCursor(kind) {
+    this.orderCursor = kind || 'select';
+    if (this.cursorEl) {
+      this.cursorEl.className = this.pointerLocked ? `is-${this.orderCursor}` : `hidden is-${this.orderCursor}`;
+      const cap = this.cursorEl.querySelector('.cursor-caption');
+      if (cap) {
+        const labels = {
+          attack: 'ATTACK', harvest: 'HARVEST', capture: 'CAPTURE', follow: 'ESCORT',
+          rally: 'RALLY', move: 'MOVE', attackmove: 'A-MOVE', repair: 'REPAIR',
+          sell: 'SELL', select: '', place: 'PLACE'
+        };
+        cap.textContent = labels[this.orderCursor] || '';
+      }
+    }
+  }
+
   syncCursorHud() {
     if (this.cursorEl) {
       if (this.pointerLocked) {
         this.cursorEl.classList.remove('hidden');
         this.cursorEl.style.left = `${this.virtualCursor.x}px`;
         this.cursorEl.style.top = `${this.virtualCursor.y}px`;
+        this.setOrderCursor(this.orderCursor);
       } else {
         this.cursorEl.classList.add('hidden');
       }
@@ -405,6 +423,33 @@ class GameRenderer {
       y: ((-p.y + 1) / 2) * rect.height + rect.top,
       visible: p.z < 1
     };
+  }
+
+  getGroundViewBounds() {
+    const rect = this.canvas.getBoundingClientRect();
+    const pts = [
+      this.getGroundIntersection(rect.left + 8, rect.top + 8),
+      this.getGroundIntersection(rect.right - 8, rect.top + 8),
+      this.getGroundIntersection(rect.right - 8, rect.bottom - 8),
+      this.getGroundIntersection(rect.left + 8, rect.bottom - 8)
+    ].filter(Boolean);
+    if (pts.length < 2) {
+      const z = 22 * this.zoomLevel;
+      return {
+        minX: this.targetPos.x - z * 1.2,
+        maxX: this.targetPos.x + z * 1.2,
+        minZ: this.targetPos.z - z * 0.9,
+        maxZ: this.targetPos.z + z * 0.9
+      };
+    }
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    pts.forEach((p) => {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.z < minZ) minZ = p.z;
+      if (p.z > maxZ) maxZ = p.z;
+    });
+    return { minX, maxX, minZ, maxZ };
   }
 
   getViewportSize() {

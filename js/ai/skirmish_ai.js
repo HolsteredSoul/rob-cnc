@@ -268,7 +268,11 @@ class SkirmishAI {
     // Send strike squad
     const squad = combatUnits.slice(0, this.difficultyConfig.attackSquadSize);
     squad.forEach(unit => {
-      unit.attackTarget(target, pathfinding);
+      if (target.position && typeof unit.attackMoveTo === 'function') {
+        unit.attackMoveTo(target.position.x, target.position.z, pathfinding);
+      } else {
+        unit.attackTarget(target, pathfinding);
+      }
     });
   }
 }

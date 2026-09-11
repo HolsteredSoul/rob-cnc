@@ -13,16 +13,22 @@ class EntityManager {
     this.selectedUnits = [];
     this.selectedBuilding = null;
     this.controlGroups = {}; // Hotkey groups 1-9
+    this.alertX = 0;
+    this.alertZ = 0;
+    this.alertTime = -999;
   }
 
   clearAll() {
     this.units.forEach(u => {
       this.scene.remove(u.mesh);
+      if (u.healthBar) this.scene.remove(u.healthBar);
     });
     this.units = [];
 
     this.buildings.forEach(b => {
       this.scene.remove(b.mesh);
+      if (b.scaffold) this.scene.remove(b.scaffold);
+      if (b.rallyMarker) this.scene.remove(b.rallyMarker);
       b.setTerrainGrid(this.terrain, false);
     });
     this.buildings = [];
@@ -70,6 +76,7 @@ class EntityManager {
           gameContext.soundFX.playExplosion(u.isVehicle);
         }
         this.scene.remove(u.mesh);
+        if (u.healthBar) this.scene.remove(u.healthBar);
         this.deselectUnit(u);
         this.units.splice(i, 1);
       } else {
@@ -82,6 +89,7 @@ class EntityManager {
         } else {
           u.mesh.visible = true;
         }
+        if (u.healthBar && !u.mesh.visible) u.healthBar.visible = false;
       }
     }
 
@@ -97,6 +105,8 @@ class EntityManager {
         }
         b.setTerrainGrid(this.terrain, false);
         this.scene.remove(b.mesh);
+        if (b.scaffold) this.scene.remove(b.scaffold);
+        if (b.rallyMarker) this.scene.remove(b.rallyMarker);
         if (this.selectedBuilding === b) {
           this.selectedBuilding = null;
         }
@@ -152,33 +162,45 @@ class EntityManager {
     }
   }
 
+  notePlayerAlert(x, z) {
+    this.alertX = x;
+    this.alertZ = z;
+    this.alertTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() / 1000 : Date.now() / 1000;
+  }
+
   // Find nearest enemy unit or building
-  findClosestEnemy(pos, maxRadius = Infinity, myFaction = 'player') {
+  findClosestEnemy(pos, maxRadius = Infinity, myFaction = 'player', options = {}) {
+    const canTargetAir = options.canTargetAir === true;
+    const preferAir = !!options.preferAir;
     let closest = null;
+    let closestAir = null;
     let minDistSq = maxRadius * maxRadius;
+    let minAirSq = maxRadius * maxRadius;
 
-    // Check enemy units first
     for (const u of this.units) {
-      if (u.isAlive && u.faction !== myFaction) {
-        const distSq = pos.distanceToSquared(u.position);
-        if (distSq < minDistSq) {
-          minDistSq = distSq;
-          closest = u;
-        }
+      if (!u.isAlive || u.faction === myFaction) continue;
+      if (u.isAir && !canTargetAir) continue;
+      const distSq = pos.distanceToSquared(u.position);
+      if (u.isAir && distSq < minAirSq) {
+        minAirSq = distSq;
+        closestAir = u;
+      }
+      if (distSq < minDistSq) {
+        minDistSq = distSq;
+        closest = u;
       }
     }
 
-    // Check enemy buildings
     for (const b of this.buildings) {
-      if (b.isAlive && b.faction !== myFaction) {
-        const distSq = pos.distanceToSquared(b.position);
-        if (distSq < minDistSq) {
-          minDistSq = distSq;
-          closest = b;
-        }
+      if (!b.isAlive || b.faction === myFaction) continue;
+      const distSq = pos.distanceToSquared(b.position);
+      if (distSq < minDistSq) {
+        minDistSq = distSq;
+        closest = b;
       }
     }
 
+    if (preferAir && closestAir) return closestAir;
     return closest;
   }
 
@@ -238,6 +260,22 @@ class EntityManager {
     } else if (entity instanceof Building) {
       this.selectedBuilding = entity;
       entity.setSelected(true);
+    }
+  }
+
+  toggleSelectUnit(unit) {
+    if (!unit || !(unit instanceof Unit)) return;
+    if (this.selectedBuilding) {
+      this.selectedBuilding.setSelected(false);
+      this.selectedBuilding = null;
+    }
+    const idx = this.selectedUnits.indexOf(unit);
+    if (idx !== -1) {
+      this.selectedUnits.splice(idx, 1);
+      unit.setSelected(false);
+    } else {
+      this.selectedUnits.push(unit);
+      unit.setSelected(true);
     }
   }
 

@@ -26,6 +26,7 @@ class HUD {
 
     this.btnRepair = document.getElementById('btn-mode-repair');
     this.btnSell = document.getElementById('btn-mode-sell');
+    this.btnAttackMove = document.getElementById('btn-mode-attackmove');
     this.btnAirstrike = document.getElementById('btn-mode-airstrike');
 
     this.modalMission = document.getElementById('modal-mission-select');
@@ -58,6 +59,12 @@ class HUD {
       if (this.ctx.soundFX) this.ctx.soundFX.playClick();
     });
 
+    if (this.btnAttackMove) this.btnAttackMove.addEventListener('click', () => {
+      const isOn = this.ctx.inputManager.commandMode === 'attackmove';
+      this.ctx.inputManager.setCommandMode(isOn ? 'normal' : 'attackmove');
+      if (this.ctx.soundFX) this.ctx.soundFX.playClick();
+    });
+
     // Airstrike Mode
     if (this.btnAirstrike) this.btnAirstrike.addEventListener('click', () => {
       if (this.btnAirstrike.disabled) return;
@@ -76,8 +83,13 @@ class HUD {
     // Unit Stance Buttons
     document.querySelectorAll('.stance-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const stance = e.currentTarget.dataset.stance;
-        this.ctx.entityManager.selectedUnits.forEach(u => u.stance = stance);
+        let stance = e.currentTarget.dataset.stance;
+        if (stance === 'hold') stance = 'holdground';
+        this.ctx.entityManager.selectedUnits.forEach((u) => {
+          u.stance = stance;
+          if (stance === 'holdground' && typeof u.holdPosition === 'function') u.holdPosition();
+          if (stance === 'guard' && typeof u.becomeIdle === 'function') u.becomeIdle();
+        });
         document.querySelectorAll('.stance-btn').forEach(b => b.classList.remove('active'));
         e.currentTarget.classList.add('active');
         if (this.ctx.soundFX) this.ctx.soundFX.playClick();
@@ -188,6 +200,7 @@ class HUD {
   updateModeButtons(mode) {
     if (this.btnRepair) this.btnRepair.className = `cmd-mode-btn ${mode === 'repair' ? 'active-repair' : ''}`;
     if (this.btnSell) this.btnSell.className = `cmd-mode-btn ${mode === 'sell' ? 'active-sell' : ''}`;
+    if (this.btnAttackMove) this.btnAttackMove.className = `cmd-mode-btn ${mode === 'attackmove' ? 'active-airstrike' : ''}`;
     if (this.btnAirstrike) this.btnAirstrike.className = `cmd-mode-btn ${mode === 'airstrike' ? 'active-airstrike' : ''}`;
   }
 
@@ -265,6 +278,10 @@ class HUD {
       `;
 
       card.addEventListener('click', () => this.onBuildCardClicked(item));
+      card.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this.onBuildCardCancel(item);
+      });
       this.buildGridEl.appendChild(card);
     });
   }
@@ -311,6 +328,33 @@ class HUD {
     }
   }
 
+  onBuildCardCancel(item) {
+    if (item.isBuilding) return;
+    const { entityManager, economy, soundFX } = this.ctx;
+    const spec = UNIT_SPECS[item.type];
+    if (!spec) return;
+    const targetFacilityType = spec.category === 'infantry' ? 'barracks' : 'war_factory';
+    const facility = entityManager.getPlayerBuildings().find(b => b.type === targetFacilityType && b.isAlive);
+    if (!facility) return;
+
+    let refunded = false;
+    if (facility.currentProduction === item.type) {
+      facility.currentProduction = null;
+      facility.productionProgress = 0;
+      refunded = true;
+    } else {
+      const idx = facility.productionQueue.lastIndexOf(item.type);
+      if (idx >= 0) {
+        facility.cancelQueueIndex(idx);
+        refunded = true;
+      }
+    }
+    if (refunded) {
+      economy.addCredits('player', spec.cost);
+      if (soundFX) soundFX.playClick();
+    }
+  }
+
   updateBuildCardsProgress() {
     const { entityManager, economy } = this.ctx;
     const playerBuildings = entityManager.getPlayerBuildings();
@@ -322,6 +366,19 @@ class HUD {
       const unlocked = TechTree.isUnlocked(type, playerBuildings);
       card.classList.toggle('locked', !unlocked);
       card.classList.toggle('unaffordable', unlocked && !economy.canAfford('player', cost));
+
+      if (isBuilding) {
+        const site = playerBuildings.find((b) => b.type === type && b.isBuilding);
+        const overlay = card.querySelector('.build-progress-overlay');
+        const progressText = card.querySelector('.progress-text');
+        if (site && overlay && progressText) {
+          card.classList.add('building');
+          progressText.textContent = `${Math.floor(site.constructionProgress * 100)}%`;
+        } else if (overlay) {
+          card.classList.remove('building');
+        }
+        return;
+      }
 
       if (!isBuilding) {
         const spec = UNIT_SPECS[type];
@@ -398,16 +455,20 @@ class HUD {
       else if (primary.isAir) pIcon = '🚁';
       portraitEl.textContent = pIcon;
 
+      const rank = primary.rank || 0;
+      const rankLabel = rank >= 2 ? 'ELT' : (rank === 1 ? 'VET' : '');
       statsEl.innerHTML = `
         <span>HP: ${Math.floor(totalHp)}/${totalMax}</span>
-        <span>ATK: ${primary.damage}</span>
+        <span>ATK: ${Math.round(primary.damage)}</span>
         <span>RNG: ${primary.attackRange}</span>
-        <span>KILLS: ${primary.kills}</span>
+        <span>KILLS: ${primary.kills}${rankLabel ? ' · ' + rankLabel : ''}</span>
       `;
 
       stanceRowEl.style.display = 'flex';
+      const shownStance = primary.stance === 'hold' ? 'holdground' : primary.stance;
       document.querySelectorAll('.stance-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.stance === primary.stance);
+        const ds = b.dataset.stance === 'hold' ? 'holdground' : b.dataset.stance;
+        b.classList.toggle('active', ds === shownStance);
       });
     } else if (selectedBuilding) {
       const b = selectedBuilding;
@@ -419,10 +480,15 @@ class HUD {
       hpFillEl.className = hpPercent < 30 ? 'hp-bar-fill low' : (hpPercent < 60 ? 'hp-bar-fill medium' : 'hp-bar-fill');
 
       portraitEl.textContent = b.type === 'turret_laser' ? '💎' : (b.isTurret ? '🛡️' : '🏛️');
+      const powerLabel = b.isBuilding
+        ? 'OFFLINE'
+        : (b.powerProduced > 0 ? `+${b.powerProduced}` : `-${b.powerConsumed}`);
       statsEl.innerHTML = `
         <span>HP: ${Math.floor(b.hp)}/${b.maxHp}</span>
-        <span>POWER: ${b.powerProduced > 0 ? `+${b.powerProduced}` : `-${b.powerConsumed}`} MW</span>
+        <span>POWER: ${powerLabel} MW</span>
+        ${b.isBuilding ? `<span style="color:#ffaa00;">CONSTRUCTING ${Math.floor(b.constructionProgress * 100)}%</span>` : ''}
         ${b.isRepairing ? '<span style="color:#00ff66;">REPAIRING</span>' : ''}
+        ${b.isProducer && !b.isBuilding ? '<span>RMB: SET RALLY</span>' : ''}
       `;
 
       stanceRowEl.style.display = 'none';
