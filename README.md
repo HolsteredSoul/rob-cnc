@@ -4,6 +4,8 @@ A browser Command & Conquer–style RTS: harvest ore, keep the power grid up, bu
 
 **Fastest way to play (no install):** [holsteredsoul.github.io/rob-cnc](https://holsteredsoul.github.io/rob-cnc/)
 
+Agents continuing this repo: read [`AGENTS.md`](AGENTS.md) first.
+
 ---
 
 ## Play a copy on your PC
