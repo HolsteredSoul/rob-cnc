@@ -92,6 +92,79 @@ function run() {
     results.push('PASS harvest→return→unload credits ' + creditsBefore + ' → ' + creditsAfter);
   }
 
+  // --- Mission reload clears delayed combat effects and stale terrain occupancy ---
+  {
+    const ctx = makeCtx(g);
+    ctx.projectileManager.spawnAerialBomb(new g.THREE.Vector3(45, 12, 45), 500, null);
+    assert(ctx.projectileManager.projectiles.length === 1, 'test bomb did not spawn');
+    ctx.missionManager.loadMission(0, 'easy');
+    const freshHQ = ctx.entityManager.getPlayerBuildings().find((b) => b.type === 'command_center');
+    const freshHp = freshHQ.hp;
+    assert(ctx.projectileManager.projectiles.length === 0, 'mission reload retained stale projectiles');
+    assert(ctx.projectileManager.particles.length === 0, 'mission reload retained stale particles');
+    assert(ctx.projectileManager.laserBeams.length === 0, 'mission reload retained stale laser beams');
+    tick(ctx, 1.0, 0.05);
+    assert(freshHQ.hp === freshHp, 'stale projectile damaged the freshly loaded mission');
+    results.push('PASS mission reload clears stale projectiles before new entities');
+  }
+
+  // Old building cleanup must not erase a blocked cell created by the new map.
+  {
+    const ctx = makeCtx(g);
+    ctx.entityManager.spawnBuilding('barracks', 'player', 40, 40, { complete: true });
+    const originalSetup = ctx.terrain.setupLevelEnvironment.bind(ctx.terrain);
+    ctx.terrain.setupLevelEnvironment = (ore, rocks) => {
+      originalSetup(ore, rocks);
+      ctx.terrain.grid[40 * ctx.terrain.width + 40] = 7;
+    };
+    ctx.missionManager.loadMission(0, 'easy');
+    assert(ctx.terrain.grid[40 * ctx.terrain.width + 40] === 7, 'old building cleanup erased new mission blocked cell');
+    results.push('PASS mission reset preserves new terrain occupancy');
+  }
+
+  // --- AI only spends credits after finding a valid building placement ---
+  {
+    const ctx = makeCtx(g);
+    ctx.economy.reset(1000);
+    ctx.terrain.grid.fill(1);
+    const before = ctx.economy.credits.enemy;
+    const placed = ctx.skirmishAI.buildStructureNearBase('power_plant', ctx);
+    assert(placed === false, 'AI reported placement on a fully blocked map');
+    assert(ctx.economy.credits.enemy === before, 'AI spent credits before failed placement');
+    results.push('PASS AI failed placement preserves credits');
+  }
+
+  // --- Incomplete refineries are unavailable to harvesters ---
+  {
+    const ctx = makeCtx(g);
+    const refinery = ctx.entityManager.spawnBuilding('ore_refinery', 'player', 8, 8);
+    assert(ctx.entityManager.findClosestRefinery(new g.THREE.Vector3(16, 0, 16), 'player') === null, 'unfinished refinery was selected');
+    const harvester = ctx.entityManager.spawnUnit('harvester', 'player', 16, 16);
+    harvester.cargo = 200;
+    harvester.harvesterState = 'RETURNING';
+    harvester.order = 'harvest';
+    harvester.updateHarvester(1.5, ctx);
+    assert(harvester.harvesterState === 'IDLE' && harvester.cargo === 200, 'harvester unloaded at unfinished refinery');
+    results.push('PASS unfinished refinery cannot receive harvester unloads');
+  }
+
+  // A refinery destroyed while docked must not complete the pending unload.
+  {
+    const ctx = makeCtx(g);
+    const refinery = ctx.entityManager.spawnBuilding('ore_refinery', 'player', 8, 8, { complete: true });
+    const harvester = ctx.entityManager.getPlayerUnits().find((u) => u.type === 'harvester');
+    harvester.cargo = 200;
+    harvester.harvesterState = 'UNLOADING';
+    harvester.targetRefinery = refinery;
+    harvester.miningTimer = 1.1;
+    const before = ctx.economy.credits.player;
+    refinery.takeDamage(9999);
+    harvester.updateHarvester(0.2, ctx);
+    assert(ctx.economy.credits.player === before, 'harvester unloaded after refinery destruction');
+    assert(harvester.cargo === 200, 'cargo was lost after refinery destruction');
+    results.push('PASS refinery destruction cancels pending unload');
+  }
+
   // --- Combat HP falls after an attack tick ---
   {
     const ctx = makeCtx(g);
@@ -401,6 +474,20 @@ function run() {
     const ctx = makeCtx(g);
     const a = ctx.entityManager.spawnUnit('machine_gunner', 'player', 22, 22);
     const b = ctx.entityManager.spawnUnit('machine_gunner', 'player', 22, 22);
+    const aStart = { x: a.position.x, z: a.position.z };
+    const bStart = { x: b.position.x, z: b.position.z };
+    let aBobs = 0;
+    let bBobs = 0;
+    const aBob = a.applyWalkBob.bind(a);
+    const bBob = b.applyWalkBob.bind(b);
+    a.applyWalkBob = () => { aBobs++; aBob(); };
+    b.applyWalkBob = () => { bBobs++; bBob(); };
+    ctx.entityManager.applyUnitSeparation(1 / 60);
+    assert(aBobs <= 1 && bBobs <= 1, 'separation applied walk bob more than once per moved unit');
+    assert(Math.hypot(a.position.x - aStart.x, a.position.z - aStart.z) > 0, 'separation did not move unit A');
+    assert(Math.hypot(b.position.x - bStart.x, b.position.z - bStart.z) > 0, 'separation did not move unit B');
+    assert(a.mesh.position.x === a.position.x && a.mesh.position.z === a.position.z, 'separation left unit A mesh out of sync');
+    assert(b.mesh.position.x === b.position.x && b.mesh.position.z === b.position.z, 'separation left unit B mesh out of sync');
     tick(ctx, 0.6, 0.05);
     const d = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
     assert(d > 1.0, 'coincident infantry did not separate (dist ' + d.toFixed(2) + ')');

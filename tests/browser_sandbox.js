@@ -197,6 +197,14 @@ class FakeElement {
     return this.querySelectorAll(sel)[0] || null;
   }
 
+  closest(selector) {
+    const selectors = String(selector).split(',').map((part) => part.trim());
+    for (let node = this; node; node = node.parentNode) {
+      if (selectors.some((part) => matchCompound(node, part))) return node;
+    }
+    return null;
+  }
+
   querySelectorAll(sel) {
     return queryAll(this, sel);
   }

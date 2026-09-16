@@ -208,6 +208,7 @@ class Unit {
     this.maxCargo = this.spec.cargoCapacity || 500;
     this.harvesterState = 'IDLE'; // 'SEEKING_ORE', 'MINING', 'RETURNING', 'UNLOADING'
     this.targetOreNode = null;
+    this.targetRefinery = null;
     this.miningTimer = 0;
 
     // Create procedural 3D model
@@ -485,6 +486,7 @@ class Unit {
   moveTo(destX, destZ, pathfinding) {
     this.targetEntity = null;
     this.followTarget = null;
+    if (this.type === 'harvester') this.targetRefinery = null;
     this.order = 'move';
     if (this.type === 'harvester' && this.harvesterState !== 'UNLOADING') {
       this.harvesterState = 'IDLE';
@@ -546,6 +548,7 @@ class Unit {
   harvestOre(oreNode, pathfinding) {
     if (this.type !== 'harvester') return;
     this.targetOreNode = oreNode;
+    this.targetRefinery = null;
     this.harvesterState = 'SEEKING_ORE';
     this.order = 'harvest';
     this.targetEntity = null;
@@ -1089,8 +1092,12 @@ class Unit {
 
       case 'RETURNING': {
         if (this.order === 'move') break;
-        const refinery = entityManager.findClosestRefinery(this.position, this.faction);
-        if (!refinery || !refinery.isAlive) {
+        let refinery = this.targetRefinery;
+        if (!refinery || !refinery.isAlive || refinery.isBuilding || refinery.faction !== this.faction) {
+          refinery = entityManager.findClosestRefinery(this.position, this.faction);
+          this.targetRefinery = refinery;
+        }
+        if (!refinery) {
           this.harvesterState = 'IDLE';
           break;
         }
@@ -1100,6 +1107,7 @@ class Unit {
         const distToBldg = this.position.distanceTo(refinery.position);
         if (distToDock <= 5.4 || distToBldg <= 6.8) {
           this.waypoints = [];
+          this.targetRefinery = refinery;
           this.harvesterState = 'UNLOADING';
           this.miningTimer = 0;
         } else if (this.waypoints.length === 0) {
@@ -1110,6 +1118,10 @@ class Unit {
       }
 
       case 'UNLOADING':
+        if (!this.targetRefinery || !this.targetRefinery.isAlive || this.targetRefinery.isBuilding || this.targetRefinery.faction !== this.faction) {
+          this.returnToRefinery(gameContext);
+          break;
+        }
         this.miningTimer += delta;
         if (this.miningTimer >= 1.2) {
           if (economy) {
@@ -1121,6 +1133,7 @@ class Unit {
           }
           this.harvesterState = 'IDLE';
           this.order = 'harvest';
+          this.targetRefinery = null;
         }
         break;
     }
@@ -1138,7 +1151,8 @@ class Unit {
   returnToRefinery(gameContext) {
     if (this.type !== 'harvester') return;
     const refinery = gameContext.entityManager.findClosestRefinery(this.position, this.faction);
-    if (refinery && refinery.isAlive) {
+    if (refinery && refinery.isAlive && !refinery.isBuilding) {
+      this.targetRefinery = refinery;
       this.harvesterState = 'RETURNING';
       this.order = 'harvest';
       this.targetEntity = null;

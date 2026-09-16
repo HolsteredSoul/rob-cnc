@@ -44,6 +44,11 @@ class SoundEffects {
 
   // --- UI Sounds ---
 
+  // Rejected orders share the brief UI cue; callers also show the reason.
+  playAlert() {
+    this.playClick();
+  }
+
   playClick() {
     if (!this.ensureContext()) return;
     const now = this.ctx.currentTime;

@@ -7,6 +7,7 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="css/style.css">
   <script src="lib/three.min.js"></script>
+  <script src="js/engine/scene_resources.js"></script>
 </head>
 <body>
   <div id="game-cursor" class="hidden is-select"><span class="cursor-caption"></span></div>
@@ -126,7 +127,7 @@
   </div>
 
   <!-- Building Tooltip -->
-  <div id="build-tooltip">
+  <div id="build-tooltip" role="tooltip">
     <div class="tooltip-title" id="tooltip-title">Power Plant</div>
     <div class="tooltip-desc" id="tooltip-desc">Generates 120MW electrical power for base structures.</div>
     <div class="tooltip-stats" id="tooltip-stats">Cost: $300 | Power: +120MW</div>

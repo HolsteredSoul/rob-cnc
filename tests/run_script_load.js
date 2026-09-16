@@ -15,6 +15,7 @@ try {
   const scripts = loadGameScripts(sandbox, { includeMain: true });
   console.log('loaded scripts:', scripts.join(', '));
   assert(scripts.every((s) => !s.startsWith('http')), 'scripts must be local <script src> files');
+  assert(scripts.indexOf('js/engine/scene_resources.js') !== -1, 'scene resource helper must load before model scripts');
 
   fireDOMContentLoaded(sandbox);
 
@@ -62,8 +63,56 @@ try {
   console.log('unlocked cards:', unlocked.join(', ') || '(none)');
   assert(unlocked.indexOf('power_plant') !== -1, 'power plant should be unlocked at mission start');
   assert(locked.indexOf('ore_refinery') !== -1 || locked.indexOf('war_factory') !== -1, 'tech-gated cards should be locked');
+  assert(typeof sandbox.isPlayerRadarOperational === 'function' && !sandbox.isPlayerRadarOperational(ctx), 'missing radar must not be operational');
+  const powerCard = cards.find((c) => c.dataset.type === 'power_plant');
+  assert(powerCard && powerCard._listeners && powerCard._listeners.keydown, 'power plant card is not keyboard wired');
+  powerCard._listeners.keydown[0]({ type: 'keydown', key: 'Enter', preventDefault() {}, stopPropagation() {} });
+  assert(ctx.inputManager.placementBuildingType === 'power_plant', 'Enter should activate a focused build card');
+  ctx.inputManager.cancelBuildingPlacement();
 
   const renderer = ctx.renderer;
+  // Locked hover must run on movement, use virtual coordinates, and clear off-card.
+  const originalElementFromPoint = sandbox.document.elementFromPoint;
+  renderer.pointerLocked = true;
+  renderer.virtualCursor = { x: 123, y: 234 };
+  sandbox.document.elementFromPoint = (x, y) => {
+    assert(x === 123 && y === 234, 'tooltip hit-test used lock-element coordinates');
+    return powerCard;
+  };
+  ctx.inputManager.onMouseMove({ clientX: 500, clientY: 400 });
+  assert(sandbox.hud.tooltipEl.style.display === 'block', 'locked movement did not show build tooltip');
+  assert(sandbox.document.getElementById('tooltip-title').textContent === 'Power Plant', 'wrong virtual hover tooltip');
+  sandbox.document.elementFromPoint = () => null;
+  ctx.inputManager.onMouseMove({ clientX: 500, clientY: 400 });
+  assert(sandbox.hud.tooltipEl.style.display === 'none', 'locked tooltip remained after leaving card');
+  sandbox.document.elementFromPoint = originalElementFromPoint;
+  renderer.pointerLocked = false;
+  sandbox.dispatchEvent({ type: 'keydown', key: 'w', target: powerCard, preventDefault() {} });
+  assert(!renderer.keysDown.w, 'focused build card also activated camera panning');
+  sandbox.dispatchEvent({ type: 'keyup', key: 'w', target: powerCard });
+  console.log('keyboard camera guard / virtual build tooltip: ok');
+
+  // Readiness and command execution both reject unfinished or unpowered radar.
+  const radar = ctx.entityManager.spawnBuilding('radar_facility', 'player', 55, 55);
+  ctx.economy.update(0, ctx.entityManager, null);
+  sandbox.hud.update(0);
+  assert(sandbox.hud.btnAirstrike.disabled, 'unfinished radar enabled Airstrike');
+  const jetsBefore = ctx.entityManager.units.filter(u => u.type === 'harrier_jet').length;
+  ctx.inputManager.executeAirstrikeAtMouse(100, 100);
+  assert(ctx.entityManager.units.filter(u => u.type === 'harrier_jet').length === jetsBefore, 'unfinished radar allowed airstrike execution');
+  radar.finishConstruction(ctx);
+  ctx.economy.update(0, ctx.entityManager, null);
+  assert(!sandbox.isPlayerRadarOperational(ctx), 'unpowered radar was operational');
+  const power = ctx.entityManager.spawnBuilding('power_plant', 'player', 50, 55, { complete: true });
+  ctx.economy.update(0, ctx.entityManager, null);
+  sandbox.hud.update(0);
+  assert(!sandbox.hud.btnAirstrike.disabled, 'completed powered radar did not enable Airstrike');
+  power.takeDamage(power.maxHp + 1);
+  ctx.economy.update(0, ctx.entityManager, null);
+  ctx.inputManager.executeAirstrikeAtMouse(100, 100);
+  assert(ctx.entityManager.units.filter(u => u.type === 'harrier_jet').length === jetsBefore, 'power loss after arming allowed airstrike execution');
+  console.log('radar construction / power-loss command guard: ok');
+
   renderer.pointerInside = false;
   renderer.pointerLocked = false;
   renderer.virtualCursor = { x: 0, y: 0 };

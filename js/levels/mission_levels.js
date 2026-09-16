@@ -198,6 +198,15 @@ class MissionManager {
       soundFX
     } = this.gameContext;
 
+    // Clear entities while the old terrain grid is still installed so their
+    // occupied cells are released before the new mission is generated.
+    entityManager.clearAll();
+    if (this.gameContext.projectileManager) {
+      const pm = this.gameContext.projectileManager;
+      if (typeof pm.clear === 'function') pm.clear();
+      else if (typeof pm.reset === 'function') pm.reset();
+    }
+
     // 1. Reset terrain biome & features
     terrain.biome = mission.biome;
     terrain.generateTerrainMesh();
@@ -209,16 +218,13 @@ class MissionManager {
     if (this.gameContext.inputManager) {
       const im = this.gameContext.inputManager;
       if (im.movePips) {
-        im.movePips.forEach((p) => { if (p.mesh && p.mesh.parent) p.mesh.parent.remove(p.mesh); });
+        SceneResources.removeAndDispose(renderer.scene, im.movePips.map((p) => p.mesh));
         im.movePips = [];
       }
       if (im.attackBracket) im.attackBracket.visible = false;
     }
 
-    // 2. Reset Entities
-    entityManager.clearAll();
-
-    // 3. Reset Economy
+    // 2. Reset Economy
     economy.reset(mission.startingCredits);
 
     // 4. Setup AI

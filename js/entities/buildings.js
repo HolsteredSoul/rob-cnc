@@ -291,6 +291,7 @@ class Building {
     if (this.mesh && this.mesh.parent) {
       this.mesh.parent.remove(this.mesh);
     }
+    if (this.mesh && typeof SceneResources !== 'undefined') SceneResources.disposeRoots([this.mesh]);
     this.mesh = this.createMesh(this.type, newFaction);
     this.mesh.position.copy(this.position);
     if (this.scene) {
@@ -551,6 +552,7 @@ class Building {
     if (this.scaffold && this.scaffold.parent) {
       this.scaffold.parent.remove(this.scaffold);
     }
+    if (this.scaffold && typeof SceneResources !== 'undefined') SceneResources.disposeRoots([this.scaffold]);
     this.scaffold = null;
     if (this.type === 'command_center_advanced') {
       TechTree.upgradeCommandCenter();
@@ -774,7 +776,9 @@ class Building {
     }
     if (this.healthBar) this.healthBar.visible = false;
     if (this.scaffold && this.scaffold.parent) this.scaffold.parent.remove(this.scaffold);
+    if (this.scaffold && typeof SceneResources !== 'undefined') SceneResources.disposeRoots([this.scaffold]);
     if (this.rallyMarker && this.rallyMarker.parent) this.rallyMarker.parent.remove(this.rallyMarker);
+    if (this.rallyMarker && typeof SceneResources !== 'undefined') SceneResources.disposeRoots([this.rallyMarker]);
   }
 
   storeOre(amount) {

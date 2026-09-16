@@ -88,8 +88,10 @@ class GameRenderer {
 
     window.addEventListener('resize', () => this.onResize());
     window.addEventListener('keydown', (e) => {
-      this.keysDown[e.key.toLowerCase()] = true;
-      if (this.lockEnabled && this.isScrollKey(e)) e.preventDefault();
+      const target = e.target;
+      const focusedControl = !!(target && target.closest && target.closest('#sidebar, #top-tactical-bar, #selection-card, #mission-objective-bar, .modal-overlay, button, .build-card, .build-tab, .cmd-mode-btn'));
+      if (!focusedControl) this.keysDown[e.key.toLowerCase()] = true;
+      if (this.lockEnabled && this.isScrollKey(e) && !focusedControl) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keysDown[e.key.toLowerCase()] = false);
 

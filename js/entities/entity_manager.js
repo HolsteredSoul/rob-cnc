@@ -20,17 +20,12 @@ class EntityManager {
 
   clearAll() {
     this.units.forEach(u => {
-      this.scene.remove(u.mesh);
-      if (u.healthBar) this.scene.remove(u.healthBar);
-      if (u.cargoBar) this.scene.remove(u.cargoBar);
+      this.removeSceneRoots([u.mesh, u.healthBar, u.cargoBar]);
     });
     this.units = [];
 
     this.buildings.forEach(b => {
-      this.scene.remove(b.mesh);
-      if (b.scaffold) this.scene.remove(b.scaffold);
-      if (b.rallyMarker) this.scene.remove(b.rallyMarker);
-      if (b.healthBar) this.scene.remove(b.healthBar);
+      this.removeSceneRoots([b.mesh, b.scaffold, b.rallyMarker, b.healthBar]);
       b.setTerrainGrid(this.terrain, false);
     });
     this.buildings = [];
@@ -38,6 +33,15 @@ class EntityManager {
     this.selectedUnits = [];
     this.selectedBuilding = null;
     this.controlGroups = {};
+  }
+
+  removeSceneRoots(roots) {
+    const validRoots = (roots || []).filter(Boolean);
+    if (typeof SceneResources !== 'undefined' && SceneResources.removeAndDispose) {
+      SceneResources.removeAndDispose(this.scene, validRoots);
+      return;
+    }
+    validRoots.forEach((root) => this.scene.remove(root));
   }
 
   spawnUnit(type, faction, x, z) {
@@ -77,9 +81,7 @@ class EntityManager {
         if (gameContext.soundFX && u.isAudibleToPlayer(gameContext)) {
           gameContext.soundFX.playExplosion(u.isVehicle);
         }
-        this.scene.remove(u.mesh);
-        if (u.healthBar) this.scene.remove(u.healthBar);
-        if (u.cargoBar) this.scene.remove(u.cargoBar);
+        this.removeSceneRoots([u.mesh, u.healthBar, u.cargoBar]);
         this.deselectUnit(u);
         this.units.splice(i, 1);
       } else {
@@ -108,10 +110,7 @@ class EntityManager {
           gameContext.soundFX.playExplosion(true);
         }
         b.setTerrainGrid(this.terrain, false);
-        this.scene.remove(b.mesh);
-        if (b.scaffold) this.scene.remove(b.scaffold);
-        if (b.rallyMarker) this.scene.remove(b.rallyMarker);
-        if (b.healthBar) this.scene.remove(b.healthBar);
+        this.removeSceneRoots([b.mesh, b.scaffold, b.rallyMarker, b.healthBar]);
         if (this.selectedBuilding === b) {
           this.selectedBuilding = null;
         }
@@ -210,6 +209,13 @@ class EntityManager {
   applyUnitSeparation(delta) {
     const count = this.units.length;
     const stepCap = Math.min(0.38, 12 * delta);
+    const moved = new Set();
+    const applyLogicalOffset = (unit, ox, oz) => {
+      if (!unit || !unit.isAlive) return;
+      unit.position.x += ox;
+      unit.position.z += oz;
+      moved.add(unit);
+    };
     for (let i = 0; i < count; i++) {
       const u1 = this.units[i];
       if (!u1.isAlive || u1.isAir) continue;
@@ -274,19 +280,27 @@ class EntityManager {
         const overlap = minDist - dist;
         const cap = (harv1 || harv2) ? Math.min(0.72, 22 * delta) : stepCap;
         const mag = Math.min(overlap * 0.55, cap);
-        this.applySeparationOffset(u1, nx * mag * (w1 / share), nz * mag * (w1 / share));
-        this.applySeparationOffset(u2, -nx * mag * (w2 / share), -nz * mag * (w2 / share));
+        applyLogicalOffset(u1, nx * mag * (w1 / share), nz * mag * (w1 / share));
+        applyLogicalOffset(u2, -nx * mag * (w2 / share), -nz * mag * (w2 / share));
 
         if ((moving1 && !moving2) || (moving2 && !moving1)) {
           const side = ((i + j) % 2 === 0) ? 1 : -1;
           const slide = mag * 0.35;
           const sx = -nz * side * slide;
           const sz = nx * side * slide;
-          if (moving1 && !lock1) this.applySeparationOffset(u1, sx, sz);
-          else if (moving2 && !lock2) this.applySeparationOffset(u2, sx, sz);
+          if (moving1 && !lock1) applyLogicalOffset(u1, sx, sz);
+          else if (moving2 && !lock2) applyLogicalOffset(u2, sx, sz);
         }
       }
     }
+    // Synchronize each moved mesh once after all pairwise offsets are applied.
+    // Walk bob is likewise evaluated once per unit rather than once per overlap.
+    moved.forEach((unit) => {
+      if (!unit.mesh) return;
+      unit.mesh.position.x = unit.position.x;
+      unit.mesh.position.z = unit.position.z;
+      if (typeof unit.applyWalkBob === 'function') unit.applyWalkBob();
+    });
   }
 
   notePlayerAlert(x, z) {
@@ -337,7 +351,7 @@ class EntityManager {
     let minDistSq = Infinity;
 
     for (const b of this.buildings) {
-      if (b.isAlive && b.faction === faction && b.type === 'ore_refinery') {
+      if (b.isAlive && !b.isBuilding && b.faction === faction && b.type === 'ore_refinery') {
         const distSq = pos.distanceToSquared(b.position);
         if (distSq < minDistSq) {
           minDistSq = distSq;

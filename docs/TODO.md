@@ -116,3 +116,7 @@ Log each session with the copy-paste sheet in that doc (duration, credits checkp
 6. Ore regen (already exists; tune + show)
 
 Then resume ladder T1–T6.
+
+## C. Multiagent review implementation (2026-09-16)
+
+The twelve gameplay, UI, aesthetic, and code-quality review items are addressed in this pass. See [implementation and QA notes](review-2026-09-16.md) for changes, repeatable checks, the effects harness, and before/after proximity measurements. Performance work used a small measured mesh-sync optimization; a spatial-index rewrite was not warranted by the target-search measurements.

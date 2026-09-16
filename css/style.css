@@ -788,6 +788,12 @@ html.pointer-locked * {
   transform: translateY(-1px);
 }
 
+.build-card:focus-visible {
+  outline: 2px solid var(--cnc-green);
+  outline-offset: 2px;
+  border-color: var(--cnc-green);
+}
+
 .build-card.locked {
   opacity: 0.35;
   cursor: not-allowed;

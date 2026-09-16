@@ -130,6 +130,16 @@ class InputManager {
 
   onMouseMove(e) {
     const pt = this.getPointer(e);
+    // Native hover follows the locked element, so hit-test the virtual cursor.
+    if (this.ctx.renderer.pointerLocked && this.ctx.hud) {
+      const ui = this.hitUiAt(pt.x, pt.y);
+      const card = ui && ui.closest ? ui.closest('.build-card') : null;
+      if (card && card._buildItem && !this.placementBuildingType && !this.isLeftMouseDown) {
+        this.ctx.hud.showBuildTooltip(card._buildItem, pt.x, pt.y);
+      } else {
+        this.ctx.hud.hideBuildTooltip();
+      }
+    }
     if (this._radarDrag && this.ctx.minimap && typeof this.ctx.minimap.panFromClient === 'function') {
       this.ctx.minimap.panFromClient(pt.x, pt.y);
       return;
@@ -495,7 +505,11 @@ class InputManager {
     if (!spec) return;
 
     if (this.ghostMesh) {
-      this.ctx.renderer.scene.remove(this.ghostMesh);
+      if (typeof SceneResources !== 'undefined' && SceneResources.removeAndDispose) {
+        SceneResources.removeAndDispose(this.ctx.renderer.scene, [this.ghostMesh]);
+      } else {
+        this.ctx.renderer.scene.remove(this.ghostMesh);
+      }
       this.ghostMesh = null;
     }
 
@@ -643,7 +657,11 @@ class InputManager {
 
   cancelBuildingPlacement() {
     if (this.ghostMesh) {
-      this.ctx.renderer.scene.remove(this.ghostMesh);
+      if (typeof SceneResources !== 'undefined' && SceneResources.removeAndDispose) {
+        SceneResources.removeAndDispose(this.ctx.renderer.scene, [this.ghostMesh]);
+      } else {
+        this.ctx.renderer.scene.remove(this.ghostMesh);
+      }
       this.ghostMesh = null;
     }
     this.placementBuildingType = null;
@@ -734,6 +752,13 @@ class InputManager {
   }
 
   executeAirstrikeAtMouse(clientX, clientY) {
+    if (typeof isPlayerRadarOperational === 'function'
+      ? !isPlayerRadarOperational(this.ctx)
+      : !this.ctx.entityManager.getPlayerBuildings().some((b) => b.type === 'radar_facility' && b.isAlive && !b.isBuilding)) {
+      this.setCommandMode('normal');
+      if (this.ctx.soundFX) this.ctx.soundFX.playAlert();
+      return;
+    }
     const worldPos = this.ctx.renderer.getGroundIntersection(clientX, clientY);
     if (!worldPos) return;
 
@@ -754,6 +779,9 @@ class InputManager {
   // Hotkeys
   onKeyDown(e) {
     const key = e.key.toLowerCase();
+    // Let focused controls consume their own keyboard interaction. This keeps
+    // build-card Enter/Space and text controls from also panning or issuing orders.
+    if (this.isHudTarget(e.target) && key !== 'escape') return;
 
     // Numbers 1-9 for Control Groups
     if (key >= '1' && key <= '9') {
@@ -878,7 +906,11 @@ class InputManager {
       pip.mesh.scale.setScalar(1 + (1 - t) * 1.4);
       if (pip.mesh.material) pip.mesh.material.opacity = t * 0.95;
       if (pip.life <= 0) {
-        if (pip.mesh.parent) pip.mesh.parent.remove(pip.mesh);
+        if (typeof SceneResources !== 'undefined' && SceneResources.removeAndDispose) {
+          SceneResources.removeAndDispose(this.ctx.renderer.scene, [pip.mesh]);
+        } else if (pip.mesh.parent) {
+          pip.mesh.parent.remove(pip.mesh);
+        }
         this.movePips.splice(i, 1);
       }
     }

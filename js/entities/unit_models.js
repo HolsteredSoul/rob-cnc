@@ -49,7 +49,8 @@ class UnitModels {
 
     const skinMat = new THREE.MeshLambertMaterial({ color: 0xd2a679 });
     const uniformMat = new THREE.MeshLambertMaterial({ color: 0x475545 }); // Olive camo
-    const armorMat = new THREE.MeshLambertMaterial({ color: colors.primary }); // Faction armor
+    const armorMat = new THREE.MeshLambertMaterial({ color: 0x303a38 });
+    const trimMat = new THREE.MeshLambertMaterial({ color: colors.primary });
     const gunMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a }); // Dark steel
     const bootMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
 
@@ -74,6 +75,17 @@ class UnitModels {
     torso.position.set(0, 0.85, 0);
     group.add(torso);
 
+    // A high-contrast chest stripe and shoulder tabs survive the top-down
+    // camera much better than colouring the whole soldier like a toy piece.
+    const chestStrip = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.035), trimMat);
+    chestStrip.position.set(0, 0.94, 0.193);
+    const shoulderGeo = new THREE.BoxGeometry(0.14, 0.18, 0.38);
+    const leftShoulder = new THREE.Mesh(shoulderGeo, trimMat);
+    const rightShoulder = new THREE.Mesh(shoulderGeo, trimMat);
+    leftShoulder.position.set(-0.33, 1.05, 0);
+    rightShoulder.position.set(0.33, 1.05, 0);
+    group.add(chestStrip, leftShoulder, rightShoulder);
+
     // Head with combat helmet
     const headGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
     const head = new THREE.Mesh(headGeo, skinMat);
@@ -84,6 +96,9 @@ class UnitModels {
     const helmet = new THREE.Mesh(helmetGeo, armorMat);
     helmet.position.set(0, 1.45, 0);
     group.add(helmet);
+    const helmetBand = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.06, 0.405), trimMat);
+    helmetBand.position.set(0, 1.43, 0);
+    group.add(helmetBand);
 
     // Assault Rifle
     const gunGroup = new THREE.Group();
@@ -113,7 +128,8 @@ class UnitModels {
 
     const skinMat = new THREE.MeshLambertMaterial({ color: 0xd2a679 });
     const uniformMat = new THREE.MeshLambertMaterial({ color: 0x3d433b });
-    const armorMat = new THREE.MeshLambertMaterial({ color: colors.primary });
+    const armorMat = new THREE.MeshLambertMaterial({ color: 0x343b38 });
+    const trimMat = new THREE.MeshLambertMaterial({ color: colors.primary });
     const darkSteel = new THREE.MeshLambertMaterial({ color: 0x242424 });
     const ammoMat = new THREE.MeshLambertMaterial({ color: 0xff9900 }); // Orange grenade caps
 
@@ -130,6 +146,15 @@ class UnitModels {
     const torso = new THREE.Mesh(torsoGeo, armorMat);
     torso.position.set(0, 0.88, 0);
     group.add(torso);
+
+    const chestStrip = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.13, 0.04), trimMat);
+    chestStrip.position.set(0, 0.98, 0.235);
+    const shoulderGeo = new THREE.BoxGeometry(0.15, 0.19, 0.45);
+    const leftShoulder = new THREE.Mesh(shoulderGeo, trimMat);
+    const rightShoulder = new THREE.Mesh(shoulderGeo, trimMat);
+    leftShoulder.position.set(-0.38, 1.1, 0);
+    rightShoulder.position.set(0.38, 1.1, 0);
+    group.add(chestStrip, leftShoulder, rightShoulder);
 
     const packGeo = new THREE.BoxGeometry(0.5, 0.5, 0.3);
     const pack = new THREE.Mesh(packGeo, darkSteel);
@@ -152,6 +177,9 @@ class UnitModels {
     const helmet = new THREE.Mesh(helmetGeo, armorMat);
     helmet.position.set(0, 1.48, 0);
     group.add(head, helmet);
+    const helmetBand = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.06, 0.445), trimMat);
+    helmetBand.position.set(0, 1.46, 0);
+    group.add(helmetBand);
 
     // Grenade Launcher Drum Gun
     const gunGroup = new THREE.Group();
@@ -181,7 +209,8 @@ class UnitModels {
 
     const skinMat = new THREE.MeshLambertMaterial({ color: 0xd2a679 });
     const uniformMat = new THREE.MeshLambertMaterial({ color: 0x384037 });
-    const armorMat = new THREE.MeshLambertMaterial({ color: colors.primary });
+    const armorMat = new THREE.MeshLambertMaterial({ color: 0x303936 });
+    const trimMat = new THREE.MeshLambertMaterial({ color: colors.primary });
     const launcherMat = new THREE.MeshLambertMaterial({ color: 0x323a33 });
     const tipMat = new THREE.MeshLambertMaterial({ color: 0xdd2222 });
 
@@ -201,6 +230,17 @@ class UnitModels {
     const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.4), armorMat);
     helmet.position.set(0, 1.45, 0);
     group.add(torso, head, helmet);
+
+    const chestStrip = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.13, 0.04), trimMat);
+    chestStrip.position.set(0, 0.98, 0.215);
+    const shoulderGeo = new THREE.BoxGeometry(0.15, 0.18, 0.42);
+    const leftShoulder = new THREE.Mesh(shoulderGeo, trimMat);
+    const rightShoulder = new THREE.Mesh(shoulderGeo, trimMat);
+    leftShoulder.position.set(-0.35, 1.08, 0);
+    rightShoulder.position.set(0.35, 1.08, 0);
+    const helmetBand = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.425), trimMat);
+    helmetBand.position.set(0, 1.43, 0);
+    group.add(chestStrip, leftShoulder, rightShoulder, helmetBand);
 
     // Shoulder-mounted Bazooka/Rocket Tube
     const launcherGroup = new THREE.Group();

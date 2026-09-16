@@ -66,9 +66,10 @@ class Minimap {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
+    const radarActive = typeof isPlayerRadarOperational === 'function'
+      ? isPlayerRadarOperational(this.gameContext)
+      : entityManager.getPlayerBuildings().some(b => b.type === 'radar_facility' && !b.isBuilding && b.isAlive) && economy.isBasePowered('player');
     const hasRadarBuilding = entityManager.getPlayerBuildings().some(b => b.type === 'radar_facility' && !b.isBuilding && b.isAlive);
-    const isPowered = economy.isBasePowered('player');
-    const radarActive = hasRadarBuilding && isPowered;
     const offlineMsg = document.getElementById('radar-offline-msg');
 
     this.ctx.fillStyle = '#05080a';

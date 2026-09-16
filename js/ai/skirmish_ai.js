@@ -221,7 +221,7 @@ class SkirmishAI {
   buildStructureNearBase(type, gameContext) {
     const { entityManager, economy, terrain } = gameContext;
     const spec = BUILDING_SPECS[type];
-    if (!spec || !economy.spendCredits('enemy', spec.cost)) return;
+    if (!spec || !economy.canAfford('enemy', spec.cost)) return false;
 
     const baseGrid = terrain.worldToGrid(this.baseCenter.x, this.baseCenter.z);
     const radius = 10;
@@ -233,11 +233,13 @@ class SkirmishAI {
         const gz = Math.floor(baseGrid.gz + Math.sin(angle) * r);
 
         if (this.canPlaceBuilding(gx, gz, spec.footprint, terrain)) {
+          if (!economy.spendCredits('enemy', spec.cost)) return false;
           entityManager.spawnBuilding(type, 'enemy', gx, gz, { complete: true });
-          return;
+          return true;
         }
       }
     }
+    return false;
   }
 
   canPlaceBuilding(gx, gz, footprint, terrain) {

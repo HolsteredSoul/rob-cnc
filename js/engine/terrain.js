@@ -37,7 +37,8 @@ getElevation(wx, wz) {
 // Generate a simple flat plane with texture
 generateTerrainMesh() {
   if (this.groundMesh) {
-    this.scene.remove(this.groundMesh);
+    if (typeof SceneResources !== 'undefined') SceneResources.removeAndDispose(this.scene, [this.groundMesh]);
+    else this.scene.remove(this.groundMesh);
   }
 
   const geo = new THREE.PlaneGeometry(this.worldWidth, this.worldHeight, 1, 1);
@@ -96,16 +97,37 @@ generateTerrainMesh() {
       colAccent = '#f4f7fa';
     }
 
+    // Keep this texture deterministic: the same mission now has recognisable
+    // navigation cues instead of a different camouflage pattern every load.
+    let seed = biome === 'desert' ? 0x6d2b79f5 : (biome === 'snow' ? 0x39a4d9c1 : 0x184d3a71);
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    const wx = (worldX) => worldX / this.worldWidth * canvas.width;
+    const wz = (worldZ) => worldZ / this.worldHeight * canvas.height;
+    const clearing = (x, z, radius, color) => {
+      const radiusPx = radius * canvas.width / this.worldWidth;
+      const grad = ctx.createRadialGradient(wx(x), wz(z), radiusPx * 0.3, wx(x), wz(z), radiusPx);
+      grad.addColorStop(0, color);
+      grad.addColorStop(0.72, color);
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(wx(x), wz(z), radiusPx, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
     ctx.fillStyle = colGrass;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const blobCount = biome === 'desert' ? 420 : (biome === 'snow' ? 380 : 600);
+    const blobCount = biome === 'desert' ? 260 : (biome === 'snow' ? 240 : 340);
     for (let i = 0; i < blobCount; i++) {
-      const x = Math.random() * canvas.width;
-      const y = Math.random() * canvas.height;
-      const r = (biome === 'snow' ? 12 : 20) + Math.random() * (biome === 'desert' ? 80 : 55);
+      const x = random() * canvas.width;
+      const y = random() * canvas.height;
+      const r = (biome === 'snow' ? 12 : 20) + random() * (biome === 'desert' ? 80 : 55);
       const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-      grad.addColorStop(0, Math.random() > 0.5 ? colDirt : colRock);
+      grad.addColorStop(0, random() > 0.5 ? colDirt : colRock);
       grad.addColorStop(1, 'transparent');
       ctx.fillStyle = grad;
       ctx.beginPath();
@@ -114,27 +136,48 @@ generateTerrainMesh() {
     }
 
     if (biome === 'desert') {
-      ctx.strokeStyle = 'rgba(180, 140, 70, 0.35)';
-      ctx.lineWidth = 18;
-      for (let i = 0; i < 8; i++) {
-        ctx.beginPath();
-        ctx.moveTo(0, 80 + i * 120);
-        ctx.quadraticCurveTo(400, 40 + i * 120, 1024, 120 + i * 110);
-        ctx.stroke();
-      }
+      // Mission 2: a broad canyon track and the central rich-ore basin.
+      clearing(40, 40, 7, 'rgba(111, 79, 38, 0.42)');
+      clearing(160, 160, 7, 'rgba(111, 79, 38, 0.42)');
+      clearing(100, 100, 12, 'rgba(126, 91, 42, 0.46)');
+      ctx.strokeStyle = 'rgba(93, 66, 35, 0.48)';
+      ctx.lineWidth = 26;
+      ctx.beginPath();
+      ctx.moveTo(wx(25), wz(35));
+      ctx.quadraticCurveTo(wx(92), wz(88), wx(175), wz(165));
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(226, 188, 112, 0.18)';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(wx(25), wz(35));
+      ctx.quadraticCurveTo(wx(92), wz(88), wx(175), wz(165));
+      ctx.stroke();
       ctx.fillStyle = colAccent;
       for (let i = 0; i < 40; i++) {
         ctx.globalAlpha = 0.15;
-        ctx.fillRect(Math.random() * 1024, Math.random() * 1024, 80 + Math.random() * 120, 6);
+        ctx.fillRect(random() * 1024, random() * 1024, 80 + random() * 120, 6);
       }
       ctx.globalAlpha = 1;
     } else if (biome === 'snow') {
+      // Mission 3: packed deployment pads linked by an exposed snow route.
+      clearing(45, 45, 8, 'rgba(114, 135, 145, 0.34)');
+      clearing(155, 155, 8, 'rgba(114, 135, 145, 0.34)');
+      clearing(100, 60, 7, 'rgba(102, 124, 136, 0.26)');
+      clearing(100, 140, 7, 'rgba(102, 124, 136, 0.26)');
+      ctx.strokeStyle = 'rgba(102, 124, 136, 0.38)';
+      ctx.lineWidth = 15;
+      ctx.beginPath();
+      ctx.moveTo(wx(35), wz(42));
+      ctx.lineTo(wx(100), wz(60));
+      ctx.lineTo(wx(100), wz(140));
+      ctx.lineTo(wx(165), wz(158));
+      ctx.stroke();
       ctx.fillStyle = colAccent;
       for (let i = 0; i < 900; i++) {
-        ctx.globalAlpha = 0.25 + Math.random() * 0.5;
-        const r = 1 + Math.random() * 2.5;
+        ctx.globalAlpha = 0.25 + random() * 0.5;
+        const r = 1 + random() * 2.5;
         ctx.beginPath();
-        ctx.arc(Math.random() * 1024, Math.random() * 1024, r, 0, Math.PI * 2);
+        ctx.arc(random() * 1024, random() * 1024, r, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.globalAlpha = 0.35;
@@ -143,13 +186,18 @@ generateTerrainMesh() {
       ctx.fillRect(0, 710, 1024, 18);
       ctx.globalAlpha = 1;
     } else {
-      ctx.strokeStyle = 'rgba(55, 48, 36, 0.45)';
-      ctx.lineWidth = 10;
+      // Mission 1: worn forward-base clearings and a visible approach road.
+      clearing(45, 45, 8, 'rgba(91, 77, 52, 0.50)');
+      clearing(155, 155, 8, 'rgba(91, 77, 52, 0.50)');
+      clearing(55, 65, 6, 'rgba(102, 87, 53, 0.42)');
+      ctx.strokeStyle = 'rgba(55, 48, 36, 0.58)';
+      ctx.lineWidth = 15;
       ctx.beginPath();
-      ctx.moveTo(120, 480);
-      ctx.quadraticCurveTo(450, 400, 890, 560);
-      ctx.moveTo(500, 150);
-      ctx.quadraticCurveTo(550, 520, 480, 880);
+      ctx.moveTo(wx(35), wz(42));
+      ctx.quadraticCurveTo(wx(60), wz(56), wx(55), wz(65));
+      ctx.quadraticCurveTo(wx(108), wz(96), wx(165), wz(158));
+      ctx.moveTo(wx(55), wz(65));
+      ctx.quadraticCurveTo(wx(90), wz(55), wx(125), wz(72));
       ctx.stroke();
     }
 
@@ -162,11 +210,12 @@ generateTerrainMesh() {
   // Setup level environment with ore fields, rock formations, and 3D tree groves
   setupLevelEnvironment(oreFields = [], rockClusters = []) {
     // 1. Clear previous
-    this.oreDeposits.forEach(o => this.scene.remove(o.mesh));
+    const previousRoots = this.oreDeposits.map(o => o.mesh)
+      .concat(this.obstacles, this.trees);
+    if (typeof SceneResources !== 'undefined') SceneResources.removeAndDispose(this.scene, previousRoots);
+    else previousRoots.forEach(root => this.scene.remove(root));
     this.oreDeposits = [];
-    this.obstacles.forEach(o => this.scene.remove(o));
     this.obstacles = [];
-    this.trees.forEach(t => this.scene.remove(t));
     this.trees = [];
     this.grid.fill(0);
 

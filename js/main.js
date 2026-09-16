@@ -224,7 +224,9 @@ window.addEventListener('DOMContentLoaded', () => {
     terrain.updateOreRegeneration(delta);
 
     // 3. Fog of War Line-of-Sight
-    const hasPoweredRadar = entityManager.getPlayerBuildings().some(b => b.type === 'radar_facility' && b.isAlive) && economy.isBasePowered('player');
+    const hasPoweredRadar = typeof isPlayerRadarOperational === 'function'
+      ? isPlayerRadarOperational(gameContext)
+      : entityManager.getPlayerBuildings().some(b => b.type === 'radar_facility' && b.isAlive && !b.isBuilding) && economy.isBasePowered('player');
     fogOfWar.update(
       entityManager.getPlayerUnits(),
       entityManager.getPlayerBuildings(),

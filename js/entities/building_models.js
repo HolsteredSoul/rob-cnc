@@ -31,10 +31,15 @@ class BuildingModels {
     const c = this.getFactionColors(faction);
     const group = new THREE.Group();
 
-    const concreteMat = new THREE.MeshLambertMaterial({ color: c.concrete });
-    const armorMat = new THREE.MeshLambertMaterial({ color: c.primary });
+    // The command centre is deliberately mostly neutral.  At RTS distance the
+    // team colour reads as an ownership marker, while the building reads as a
+    // heavy command structure rather than a stack of bright team-colour boxes.
+    const concreteMat = new THREE.MeshLambertMaterial({ color: 0x59646a });
+    const armorMat = new THREE.MeshLambertMaterial({ color: 0x364249 });
     const steelMat = new THREE.MeshLambertMaterial({ color: c.steel });
-    const glassMat = new THREE.MeshLambertMaterial({ color: 0x33b5e5, transparent: true, opacity: 0.8 });
+    const trimMat = new THREE.MeshLambertMaterial({ color: c.primary });
+    const lightTrimMat = new THREE.MeshLambertMaterial({ color: c.secondary });
+    const glassMat = new THREE.MeshLambertMaterial({ color: 0x7fa7b5, transparent: true, opacity: 0.72 });
 
     // Main Bunker Base
     const baseGeo = new THREE.BoxGeometry(7.0, 1.4, 7.0);
@@ -51,11 +56,28 @@ class BuildingModels {
     tower.castShadow = true;
     group.add(tower);
 
+    // Recessed-looking side buttresses and a narrow command band make the
+    // silhouette legible from the game camera without changing its footprint.
+    const buttressGeo = new THREE.BoxGeometry(0.48, 2.0, 3.7);
+    [-2.35, 2.35].forEach((x) => {
+      const buttress = new THREE.Mesh(buttressGeo, steelMat);
+      buttress.position.set(x, 1.85, 0);
+      buttress.castShadow = true;
+      group.add(buttress);
+    });
+    const commandBand = new THREE.Mesh(new THREE.BoxGeometry(4.25, 0.22, 4.25), trimMat);
+    commandBand.position.set(0, 3.9, 0);
+    group.add(commandBand);
+
     // Observation Control Deck
     const deckGeo = new THREE.BoxGeometry(4.5, 0.8, 4.5);
     const deck = new THREE.Mesh(deckGeo, glassMat);
     deck.position.set(0, 4.2, 0);
     group.add(deck);
+
+    const roofCap = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.24, 3.7), steelMat);
+    roofCap.position.set(0, 4.66, 0);
+    group.add(roofCap);
 
     // Satellite Dish on Roof
     const dishGroup = new THREE.Group();
@@ -74,6 +96,9 @@ class BuildingModels {
     const door = new THREE.Mesh(doorGeo, steelMat);
     door.position.set(0, 0.7, 3.52);
     group.add(door);
+    const doorMark = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.12, 0.04), lightTrimMat);
+    doorMark.position.set(0, 1.05, 3.64);
+    group.add(doorMark);
 
     group.userData = { footprint: { w: 4, h: 4 }, rotatingPart: dishGroup };
     return group;

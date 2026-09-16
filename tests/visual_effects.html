@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Operation Vanguard VFX QA</title>
+<style>body{margin:0;background:#111;color:#ddd;font:14px system-ui}#bar{padding:10px;background:#20252a;position:fixed;z-index:2}button{margin-right:6px}#stats{margin-left:12px;color:#9ed}</style></head>
+<body><div id="bar"><button data-fx="shell">Shell</button><button data-fx="rocket">Rocket</button><button data-fx="bomb">Bomb</button><button data-fx="laser">Laser</button><button data-fx="burst">Burst</button><button data-fx="clear">Clear</button><label><input id="pause" type="checkbox"> pause</label><label><input id="slow" type="checkbox"> slow</label><span id="stats"></span></div>
+<script src="../lib/three.min.js"></script><script src="../js/engine/scene_resources.js"></script><script src="../js/entities/projectiles.js"></script>
+<script>
+(() => {
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, .1, 200);
+  camera.position.set(11, 13, 16); camera.lookAt(0, 0, 0);
+  const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(innerWidth, innerHeight); renderer.setPixelRatio(devicePixelRatio); document.body.appendChild(renderer.domElement);
+  scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x272016, 2)); const floor = new THREE.Mesh(new THREE.PlaneGeometry(36,36), new THREE.MeshLambertMaterial({color:0x47523b})); floor.rotation.x=-Math.PI/2; scene.add(floor);
+  const manager = new ProjectileManager(scene), from = new THREE.Vector3(-7,1.4,-5), target = new THREE.Vector3(5,0,3), dummy = {isAlive:true,position:target,takeDamage(){}};
+  let last = performance.now(); function frame(now) { let dt=Math.min(.05,(now-last)/1000); last=now; if(document.querySelector('#pause').checked)dt=0; if(document.querySelector('#slow').checked)dt*=.15; if(dt > 0) manager.update(dt, null); renderer.render(scene,camera); const m=renderer.info.memory; document.querySelector('#stats').textContent=`active ${manager.projectiles.length + manager.particles.length} · geo ${m.geometries} · tex ${m.textures}`; requestAnimationFrame(frame); } requestAnimationFrame(frame);
+  document.querySelector('#bar').onclick = e => { const fx=e.target.dataset.fx; if(!fx)return; if(fx==='shell')manager.spawnTankShell(from,target,dummy,1,null); if(fx==='rocket')manager.spawnRocket(from,target,dummy,1,null); if(fx==='bomb')manager.spawnAerialBomb(new THREE.Vector3(target.x,11,target.z),1,null); if(fx==='laser')manager.spawnLaserBeam(from,target,dummy,1,null); if(fx==='burst')for(let i=0;i<8;i++)manager.explodeAt(target.clone().add(new THREE.Vector3((Math.random()-.5)*5,0,(Math.random()-.5)*5)),i%2===0,1); if(fx==='clear')manager.clear(); };
+  addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+})();
+</script></body></html>

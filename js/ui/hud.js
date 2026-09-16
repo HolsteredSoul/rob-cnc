@@ -2,6 +2,19 @@
 // Command & Conquer RTS - Tactical HUD, Sidebar Build Queues & Modals
 // ==========================================================================
 
+function isPlayerRadarOperational(gameContext) {
+  if (!gameContext || !gameContext.entityManager) return false;
+  const buildings = gameContext.entityManager.getPlayerBuildings
+    ? gameContext.entityManager.getPlayerBuildings() : [];
+  const radar = buildings.some((b) => b && b.type === 'radar_facility' && b.isAlive && !b.isBuilding);
+  if (!radar) return false;
+  if (gameContext.economy && typeof gameContext.economy.isBasePowered === 'function') {
+    return !!gameContext.economy.isBasePowered('player');
+  }
+  return !(gameContext.economy && gameContext.economy.getPowerStats && gameContext.economy.getPowerStats('player').isDeficit);
+}
+if (typeof window !== 'undefined') window.isPlayerRadarOperational = isPlayerRadarOperational;
+
 class HUD {
   constructor(gameContext) {
     this.ctx = gameContext;
@@ -147,6 +160,7 @@ class HUD {
       this.modalVictory.classList.add('hidden');
       const nextMission = (this.ctx.missionManager.currentMissionIndex + 1) % 3;
       this.ctx.missionManager.loadMission(nextMission);
+      this.refreshBuildCards();
       this.ctx.missionActive = true;
       if (this.ctx.renderer && this.ctx.renderer.setPlayCapture) this.ctx.renderer.setPlayCapture(true);
     });
@@ -156,6 +170,7 @@ class HUD {
     if (defeatRetry) defeatRetry.addEventListener('click', () => {
       this.modalDefeat.classList.add('hidden');
       this.ctx.missionManager.loadMission(this.ctx.missionManager.currentMissionIndex);
+      this.refreshBuildCards();
       this.ctx.missionActive = true;
       if (this.ctx.renderer && this.ctx.renderer.setPlayCapture) this.ctx.renderer.setPlayCapture(true);
     });
@@ -187,8 +202,14 @@ class HUD {
     this.powerFillEl.style.width = `${fillPercent}%`;
 
     // 3. Update Airstrike Button state
-    const hasRadar = entityManager.getPlayerBuildings().some(b => b.type === 'radar_facility' && b.isAlive);
-    if (this.btnAirstrike) this.btnAirstrike.disabled = !hasRadar || power.isDeficit;
+    const radarReady = isPlayerRadarOperational(this.ctx);
+    if (this.btnAirstrike) {
+      this.btnAirstrike.disabled = !radarReady;
+      this.btnAirstrike.title = radarReady ? 'Order an airstrike' : 'Requires a complete, powered Radar Facility';
+      if (!radarReady && this.ctx.inputManager && this.ctx.inputManager.commandMode === 'airstrike') {
+        this.ctx.inputManager.setCommandMode('normal');
+      }
+    }
 
     // 4. Update Objective Text
     if (this.objectiveTextEl) {
@@ -217,58 +238,40 @@ class HUD {
   // Generate build cards for current tab
   refreshBuildCards() {
     if (!this.buildGridEl) return;
+    this.hideBuildTooltip();
     this.buildGridEl.innerHTML = '';
     const { entityManager } = this.ctx;
 
-    let items = [];
-    if (this.activeTab === 'structures') {
-      items = [
-        { type: 'power_plant', isBuilding: true, name: 'Power Plant', cost: 300, req: [] },
-        { type: 'ore_refinery', isBuilding: true, name: 'Ore Refinery', cost: 1200, req: ['power_plant'] },
-        { type: 'barracks', isBuilding: true, name: 'Barracks', cost: 400, req: ['power_plant'] },
-        { type: 'war_factory', isBuilding: true, name: 'War Factory', cost: 1000, req: ['barracks', 'ore_refinery'] },
-        { type: 'radar_facility', isBuilding: true, name: 'Radar Facility', cost: 600, req: ['ore_refinery'] },
-        { type: 'energy_storage', isBuilding: true, name: 'Energy Storage', cost: 250, req: ['power_plant'] }
-      ];
-    } else if (this.activeTab === 'defenses') {
-      items = [
-        { type: 'turret_gun', isBuilding: true, name: 'MG Turret', cost: 350, req: ['barracks'] },
-        { type: 'turret_rocket', isBuilding: true, name: 'Rocket Turret', cost: 550, req: ['radar_facility'] },
-        { type: 'turret_laser', isBuilding: true, name: 'Laser Obelisk', cost: 800, req: ['radar_facility', 'power_plant'] },
-        { type: 'wall', isBuilding: true, name: 'Wall Segment', cost: 50, req: [] }
-      ];
-    } else if (this.activeTab === 'infantry') {
-      items = [
-        { type: 'machine_gunner', isBuilding: false, name: 'Machine Gunner', cost: 100, req: ['barracks'] },
-        { type: 'grenadier', isBuilding: false, name: 'Grenadier', cost: 160, req: ['barracks'] },
-        { type: 'rocket_launcher', isBuilding: false, name: 'Rocket Soldier', cost: 220, req: ['barracks'] },
-        { type: 'engineer', isBuilding: false, name: 'Combat Engineer', cost: 250, req: ['barracks'] }
-      ];
-    } else if (this.activeTab === 'vehicles') {
-      items = [
-        { type: 'light_tracks', isBuilding: false, name: 'Light Tracks', cost: 400, req: ['war_factory'] },
-        { type: '4x4_gunner', isBuilding: false, name: '4x4 Gunner', cost: 350, req: ['war_factory'] },
-        { type: 'battle_tank', isBuilding: false, name: 'Battle Tank', cost: 800, req: ['war_factory'] },
-        { type: 'harvester', isBuilding: false, name: 'Ore Harvester', cost: 500, req: ['ore_refinery'] },
-        { type: 'laser_colossus', isBuilding: false, name: 'Laser Colossus', cost: 1600, req: ['war_factory', 'radar_facility'] },
-        { type: 'helicopter', isBuilding: false, name: 'Attack Chopper', cost: 750, req: ['war_factory', 'radar_facility'] }
-      ];
-    }
+    const categoryOrder = {
+      structures: ['power_plant', 'ore_refinery', 'barracks', 'war_factory', 'radar_facility', 'energy_storage'],
+      defenses: ['turret_gun', 'turret_rocket', 'turret_laser', 'wall'],
+      infantry: ['machine_gunner', 'grenadier', 'rocket_launcher', 'engineer'],
+      vehicles: ['light_tracks', '4x4_gunner', 'battle_tank', 'harvester', 'laser_colossus', 'helicopter']
+    };
+    const buildingTypes = new Set(categoryOrder.structures.concat(categoryOrder.defenses));
+    const items = (categoryOrder[this.activeTab] || []).map((type) => ({
+      type,
+      isBuilding: buildingTypes.has(type),
+      spec: buildingTypes.has(type) ? BUILDING_SPECS[type] : UNIT_SPECS[type]
+    })).filter((item) => item.spec);
 
     const playerBuildings = entityManager.getPlayerBuildings();
     const credits = this.ctx.economy ? this.ctx.economy.credits.player : 0;
 
     items.forEach(item => {
-      const specCost = item.isBuilding
-        ? (BUILDING_SPECS[item.type] && BUILDING_SPECS[item.type].cost)
-        : (UNIT_SPECS[item.type] && UNIT_SPECS[item.type].cost);
-      const cost = specCost !== undefined ? specCost : item.cost;
+      const spec = item.spec;
+      const cost = spec.cost;
 
       const card = document.createElement('div');
       card.className = 'build-card';
       card.dataset.type = item.type;
       card.dataset.isBuilding = item.isBuilding;
       card.dataset.cost = String(cost);
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('aria-label', `${spec.name}, $${cost}`);
+      card.setAttribute('aria-describedby', 'build-tooltip');
+      card._buildItem = item;
 
       const isUnlocked = TechTree.isUnlocked(item.type, playerBuildings);
       if (!isUnlocked) {
@@ -276,11 +279,12 @@ class HUD {
       } else if (credits < cost) {
         card.classList.add('unaffordable');
       }
+      card.setAttribute('aria-disabled', String(!isUnlocked || credits < cost));
 
       card.innerHTML = `
         <div class="queue-badge" id="queue-${item.type}">0</div>
         <div class="build-card-icon"></div>
-        <div class="build-card-name">${item.name}</div>
+        <div class="build-card-name">${spec.name}</div>
         <div class="build-card-cost">$ ${cost}</div>
         <div class="build-progress-overlay">
           <span class="progress-text">0%</span>
@@ -300,12 +304,72 @@ class HUD {
       }
 
       card.addEventListener('click', () => this.onBuildCardClicked(item));
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.onBuildCardClicked(item);
+        }
+      });
+      card.addEventListener('mouseenter', (e) => this.showBuildTooltip(item, e.clientX, e.clientY));
+      card.addEventListener('mousemove', (e) => this.showBuildTooltip(item, e.clientX, e.clientY));
+      card.addEventListener('mouseleave', () => this.hideBuildTooltip());
+      card.addEventListener('focus', () => {
+        const rect = card.getBoundingClientRect ? card.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+        this.showBuildTooltip(item, rect.left + rect.width / 2, rect.top + rect.height);
+      });
+      card.addEventListener('blur', () => this.hideBuildTooltip());
       card.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         this.onBuildCardCancel(item);
       });
       this.buildGridEl.appendChild(card);
     });
+  }
+
+  showBuildTooltip(item, clientX, clientY) {
+    if (!this.tooltipEl || !item || !item.spec) return;
+    const spec = item.spec;
+    const requirements = (TechTree.REQUIREMENTS && TechTree.REQUIREMENTS[item.type]) || [];
+    const buildings = this.ctx.entityManager && this.ctx.entityManager.getPlayerBuildings
+      ? this.ctx.entityManager.getPlayerBuildings() : [];
+    const missing = requirements.filter((type) => !TechTree.hasBuilding(buildings, type));
+    const affordable = !this.ctx.economy || !this.ctx.economy.canAfford
+      || this.ctx.economy.canAfford('player', spec.cost);
+    const title = document.getElementById('tooltip-title');
+    const desc = document.getElementById('tooltip-desc');
+    const stats = document.getElementById('tooltip-stats');
+    if (title) title.textContent = spec.name;
+    if (desc) {
+      if (missing.length) {
+        const missingNames = missing.map((type) => {
+          const reqSpec = BUILDING_SPECS[type] || UNIT_SPECS[type];
+          return reqSpec ? reqSpec.name : type;
+        });
+        desc.textContent = `Locked: requires ${missingNames.join(' + ')}.`;
+      } else if (!affordable) {
+        desc.textContent = `Insufficient funds: need $${spec.cost}.`;
+      } else {
+        desc.textContent = item.isBuilding ? 'Available from the current command network.' : 'Ready for production when its facility is operational.';
+      }
+    }
+    const detail = [];
+    detail.push(`Cost: $${spec.cost}`);
+    if (spec.buildTime) detail.push(`${item.isBuilding ? 'Build' : 'Train'}: ${spec.buildTime}s`);
+    if (spec.powerProduced) detail.push(`Power: +${spec.powerProduced}MW`);
+    if (spec.powerConsumed) detail.push(`Power: -${spec.powerConsumed}MW`);
+    if (stats) stats.textContent = detail.join(' | ');
+    this.tooltipEl.style.display = 'block';
+    const pad = 12;
+    const rect = this.tooltipEl.getBoundingClientRect ? this.tooltipEl.getBoundingClientRect() : { width: 240, height: 70 };
+    const maxX = Math.max(pad, (window.innerWidth || 1024) - rect.width - pad);
+    const maxY = Math.max(pad, (window.innerHeight || 768) - rect.height - pad);
+    this.tooltipEl.style.left = `${Math.min(maxX, Math.max(pad, (clientX || 0) + 14))}px`;
+    this.tooltipEl.style.top = `${Math.min(maxY, Math.max(pad, (clientY || 0) + 14))}px`;
+  }
+
+  hideBuildTooltip() {
+    if (this.tooltipEl) this.tooltipEl.style.display = 'none';
   }
 
   onBuildCardClicked(item) {
@@ -320,7 +384,7 @@ class HUD {
 
     if (item.isBuilding) {
       // Direct placement mode for structures
-      if (economy.canAfford('player', item.cost)) {
+      if (economy.canAfford('player', item.spec.cost)) {
         inputManager.startBuildingPlacement(item.type);
       } else {
         if (soundFX) soundFX.playAlert();
@@ -388,6 +452,7 @@ class HUD {
       const unlocked = TechTree.isUnlocked(type, playerBuildings);
       card.classList.toggle('locked', !unlocked);
       card.classList.toggle('unaffordable', unlocked && !economy.canAfford('player', cost));
+      card.setAttribute('aria-disabled', String(!unlocked || !economy.canAfford('player', cost)));
 
       if (isBuilding) {
         const site = playerBuildings.find((b) => b.type === type && b.isBuilding);
