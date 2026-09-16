@@ -390,6 +390,12 @@ class Unit {
     else fill.material.color.setHex(0x33ff33);
   }
 
+  arrivalRadius() {
+    if (this.isAir) return 1.6;
+    if (this.isVehicle) return 1.15;
+    return 0.7;
+  }
+
   setPathTo(destX, destZ, pathfinding) {
     this.destX = destX;
     this.destZ = destZ;
@@ -544,22 +550,52 @@ class Unit {
   }
 
   updateAnimations(delta) {
+    const ud = this.mesh.userData;
     // Helicopter spinning rotors
-    if (this.mesh.userData.mainRotor) {
-      this.mesh.userData.mainRotor.rotation.y += 28 * delta;
+    if (ud.mainRotor) {
+      ud.mainRotor.rotation.y += 28 * delta;
     }
-    if (this.mesh.userData.tailRotor) {
-      this.mesh.userData.tailRotor.rotation.x += 34 * delta;
+    if (ud.tailRotor) {
+      ud.tailRotor.rotation.x += 34 * delta;
     }
 
     // Harvester drill spinning when mining
-    if (this.mesh.userData.drill && this.harvesterState === 'MINING') {
-      this.mesh.userData.drill.rotation.x += 18 * delta;
+    if (ud.drill && this.harvesterState === 'MINING') {
+      ud.drill.rotation.x += 18 * delta;
     }
+
+    const moving = this.waypoints && this.waypoints.length > 0 && this.isAlive;
+    if (ud.animPhase === undefined) ud.animPhase = 0;
+    if (moving) ud.animPhase += delta * Math.max(4, this.speed * 2.4);
+    else ud.animPhase += (0 - ud.animPhase) * Math.min(1, delta * 8);
+
+    const swing = moving ? Math.sin(ud.animPhase) * 0.55 : 0;
+    if (ud.leftLeg) ud.leftLeg.rotation.x = swing;
+    if (ud.rightLeg) ud.rightLeg.rotation.x = -swing;
+
+    if (ud.wheels && ud.wheels.length) {
+      const spin = moving ? this.speed * delta * 3.2 : 0;
+      for (let i = 0; i < ud.wheels.length; i++) {
+        ud.wheels[i].rotation.x += spin;
+      }
+    }
+
+    this.applyWalkBob();
+  }
+
+  applyWalkBob() {
+    const ud = this.mesh && this.mesh.userData;
+    if (!ud || !ud.leftLeg || this.isAir) return;
+    const moving = this.waypoints && this.waypoints.length > 0;
+    const bob = moving ? Math.abs(Math.sin((ud.animPhase || 0) * 2)) * 0.07 : 0;
+    this.mesh.position.y = this.position.y + bob;
   }
 
   updateMovement(delta) {
-    if (this.waypoints.length === 0) return;
+    if (this.waypoints.length === 0) {
+      this.applyWalkBob();
+      return;
+    }
 
     const nextWp = this.waypoints[0];
     const wpX = nextWp.x !== undefined ? nextWp.x : nextWp.wx;
@@ -569,7 +605,8 @@ class Unit {
     dir.y = 0; // Move along horizontal plane; Y is calculated from terrain elevation
     const dist = dir.length();
 
-    if (dist < 0.8) {
+    const arriveAt = this.waypoints.length === 1 ? this.arrivalRadius() : 0.8;
+    if (dist < arriveAt) {
       this.waypoints.shift();
       if (this.waypoints.length === 0) {
         if (this.order === 'move' || this.order === 'attackMove') {

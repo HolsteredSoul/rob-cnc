@@ -31,6 +31,8 @@ class SkirmishAI {
           canBuildAir: false,
           canBuildTurrets: false,
           attackSquadSize: 3,
+          garrison: 2,
+          defendRadius: 26,
           harassHarvesters: false,
           repairsBuildings: false
         };
@@ -44,6 +46,8 @@ class SkirmishAI {
           canBuildAir: false,
           canBuildTurrets: true,
           attackSquadSize: 6,
+          garrison: 3,
+          defendRadius: 34,
           harassHarvesters: false,
           repairsBuildings: true
         };
@@ -57,6 +61,8 @@ class SkirmishAI {
           canBuildAir: true,
           canBuildTurrets: true,
           attackSquadSize: 9,
+          garrison: 4,
+          defendRadius: 44,
           harassHarvesters: true,
           repairsBuildings: true
         };
@@ -75,8 +81,8 @@ class SkirmishAI {
     }
 
     if (this.attackTimer >= this.difficultyConfig.attackInterval) {
-      this.attackTimer = 0;
-      this.launchAssault(gameContext);
+      if (this.launchAssault(gameContext)) this.attackTimer = 0;
+      else this.attackTimer = this.difficultyConfig.attackInterval - 5;
     }
   }
 
@@ -91,6 +97,10 @@ class SkirmishAI {
     if (!hq) return; // Base destroyed
 
     this.baseCenter = { x: hq.position.x, z: hq.position.z };
+
+    if (this.defendBase(gameContext, hq, enemyUnits)) return;
+
+    this.stageIdleUnits(gameContext, hq, enemyUnits);
 
     // 1. Repair damaged buildings if allowed
     if (this.difficultyConfig.repairsBuildings) {
@@ -169,8 +179,10 @@ class SkirmishAI {
       const barracks = enemyBuildings.find(b => b.type === 'barracks' && b.productionQueue.length === 0 && !b.currentProduction);
       if (barracks) {
         let unitToTrain = 'machine_gunner';
+        const playerHasAir = entityManager.getPlayerUnits().some((u) => u.isAlive && u.isAir);
         const rand = Math.random();
-        if (rand > 0.6) unitToTrain = 'rocket_launcher';
+        if (playerHasAir) unitToTrain = 'rocket_launcher';
+        else if (rand > 0.6) unitToTrain = 'rocket_launcher';
         else if (rand > 0.35) unitToTrain = 'grenadier';
 
         const cost = UNIT_SPECS[unitToTrain].cost;
@@ -238,41 +250,92 @@ class SkirmishAI {
     return true;
   }
 
-  // Launch coordinated strike against player
-  launchAssault(gameContext) {
-    const { entityManager, pathfinding } = gameContext;
-    const combatUnits = entityManager.getEnemyUnits().filter(u => u.type !== 'harvester');
+  combatUnits(entityManager) {
+    return entityManager.getEnemyUnits().filter((u) => u.isAlive && u.type !== 'harvester' && u.type !== 'engineer');
+  }
 
-    if (combatUnits.length < this.difficultyConfig.attackSquadSize) return;
-
-    // Pick target:
-    // If Hard and player has Harvester: harass harvester!
-    let target = null;
+  pickAssaultTarget(gameContext) {
+    const { entityManager } = gameContext;
     const playerUnits = entityManager.getPlayerUnits();
     const playerBuildings = entityManager.getPlayerBuildings();
 
     if (this.difficultyConfig.harassHarvesters) {
-      const playerHarvester = playerUnits.find(u => u.type === 'harvester');
-      if (playerHarvester) target = playerHarvester;
+      const playerHarvester = playerUnits.find((u) => u.type === 'harvester' && u.isAlive);
+      if (playerHarvester) return playerHarvester;
     }
 
-    // Target power plant or command center or closest building
-    if (!target) {
-      const powerPlant = playerBuildings.find(b => b.type === 'power_plant');
-      const hq = playerBuildings.find(b => b.type === 'command_center');
-      target = powerPlant || hq || playerBuildings[0] || playerUnits[0];
-    }
+    const refinery = playerBuildings.find((b) => b.type === 'ore_refinery' && b.isAlive);
+    const powerPlant = playerBuildings.find((b) => b.type === 'power_plant' && b.isAlive);
+    const hq = playerBuildings.find((b) => b.type === 'command_center' && b.isAlive);
+    if (this.difficulty === 'hard') return powerPlant || refinery || hq || playerBuildings[0] || playerUnits[0];
+    if (this.difficulty === 'medium') return hq || powerPlant || playerBuildings[0] || playerUnits[0];
+    return hq || playerBuildings[0] || playerUnits[0];
+  }
 
-    if (!target) return;
-
-    // Send strike squad
-    const squad = combatUnits.slice(0, this.difficultyConfig.attackSquadSize);
-    squad.forEach(unit => {
-      if (target.position && typeof unit.attackMoveTo === 'function') {
-        unit.attackMoveTo(target.position.x, target.position.z, pathfinding);
-      } else {
-        unit.attackTarget(target, pathfinding);
-      }
+  defendBase(gameContext, hq, enemyUnits) {
+    const { entityManager, pathfinding } = gameContext;
+    const radius = this.difficultyConfig.defendRadius || 30;
+    const threats = entityManager.getPlayerUnits().filter((u) => {
+      if (!u.isAlive || u.type === 'harvester') return false;
+      return Math.hypot(u.position.x - hq.position.x, u.position.z - hq.position.z) <= radius;
     });
+    if (!threats.length) return false;
+
+    const threat = threats[0];
+    const defenders = (enemyUnits || this.combatUnits(entityManager)).filter((u) => {
+      if (!u.isAlive || u.type === 'harvester') return false;
+      const dist = Math.hypot(u.position.x - hq.position.x, u.position.z - hq.position.z);
+      return dist <= radius * 1.4;
+    });
+    if (!defenders.length) return false;
+
+    if (typeof entityManager.issueMoveOrders === 'function') {
+      entityManager.issueMoveOrders(defenders, threat.position.x, threat.position.z, pathfinding, { attackMove: true });
+    } else {
+      defenders.forEach((u) => {
+        if (typeof u.attackMoveTo === 'function') u.attackMoveTo(threat.position.x, threat.position.z, pathfinding);
+        else u.attackTarget(threat, pathfinding);
+      });
+    }
+    return true;
+  }
+
+  stageIdleUnits(gameContext, hq, enemyUnits) {
+    const { pathfinding, entityManager } = gameContext;
+    const idle = (enemyUnits || []).filter((u) => {
+      if (!u.isAlive || u.type === 'harvester' || u.isAir) return false;
+      if (u.order === 'attack' || u.order === 'attackMove' || u.order === 'move') return false;
+      const dist = Math.hypot(u.position.x - hq.position.x, u.position.z - hq.position.z);
+      return dist < 8;
+    });
+    if (idle.length < 2) return;
+    if (typeof entityManager.issueMoveOrders === 'function') {
+      entityManager.issueMoveOrders(idle, hq.position.x + 6, hq.position.z + 8, pathfinding);
+    }
+  }
+
+  launchAssault(gameContext) {
+    const { entityManager, pathfinding } = gameContext;
+    const combatUnits = this.combatUnits(entityManager);
+    const garrison = this.difficultyConfig.garrison || 0;
+    const available = Math.max(0, combatUnits.length - garrison);
+    if (available < this.difficultyConfig.attackSquadSize) return false;
+
+    const target = this.pickAssaultTarget(gameContext);
+    if (!target || !target.position) return false;
+
+    const squad = combatUnits.slice(0, this.difficultyConfig.attackSquadSize);
+    if (typeof entityManager.issueMoveOrders === 'function') {
+      entityManager.issueMoveOrders(squad, target.position.x, target.position.z, pathfinding, { attackMove: true });
+    } else {
+      squad.forEach((unit) => {
+        if (typeof unit.attackMoveTo === 'function') {
+          unit.attackMoveTo(target.position.x, target.position.z, pathfinding);
+        } else {
+          unit.attackTarget(target, pathfinding);
+        }
+      });
+    }
+    return true;
   }
 }

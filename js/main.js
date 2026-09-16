@@ -252,7 +252,10 @@ window.addEventListener('DOMContentLoaded', () => {
     // 10. HUD Sidebar & Build Queues
     hud.update(delta);
 
-    // 11. Render 3D Scene
+    // 11. World-space command markers (move pips / attack brackets)
+    if (inputManager.update) inputManager.update(delta);
+
+    // 12. Render 3D Scene
     renderer.render();
   }
 

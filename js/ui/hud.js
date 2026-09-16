@@ -10,7 +10,17 @@ class HUD {
 
     this.initDOMReferences();
     this.initEventListeners();
+    this.paintLobbyCameos();
     this.refreshBuildCards();
+  }
+
+  paintLobbyCameos() {
+    document.querySelectorAll('.team-cameo').forEach((canvas) => {
+      const team = canvas.dataset.faction || canvas.dataset.team || 'blue';
+      if (typeof HudIcons !== 'undefined') {
+        HudIcons.paint(canvas, team === 'red' ? 'faction_red' : 'faction_blue', { team });
+      }
+    });
   }
 
   initDOMReferences() {
@@ -213,35 +223,35 @@ class HUD {
     let items = [];
     if (this.activeTab === 'structures') {
       items = [
-        { type: 'power_plant', isBuilding: true, icon: '⚡', name: 'Power Plant', cost: 300, req: [] },
-        { type: 'ore_refinery', isBuilding: true, icon: '🏭', name: 'Ore Refinery', cost: 1200, req: ['power_plant'] },
-        { type: 'barracks', isBuilding: true, icon: '🏛️', name: 'Barracks', cost: 400, req: ['power_plant'] },
-        { type: 'war_factory', isBuilding: true, icon: '🚜', name: 'War Factory', cost: 1000, req: ['barracks', 'ore_refinery'] },
-        { type: 'radar_facility', isBuilding: true, icon: '📡', name: 'Radar Facility', cost: 600, req: ['ore_refinery'] },
-        { type: 'energy_storage', isBuilding: true, icon: '🔋', name: 'Energy Storage', cost: 250, req: ['power_plant'] }
+        { type: 'power_plant', isBuilding: true, name: 'Power Plant', cost: 300, req: [] },
+        { type: 'ore_refinery', isBuilding: true, name: 'Ore Refinery', cost: 1200, req: ['power_plant'] },
+        { type: 'barracks', isBuilding: true, name: 'Barracks', cost: 400, req: ['power_plant'] },
+        { type: 'war_factory', isBuilding: true, name: 'War Factory', cost: 1000, req: ['barracks', 'ore_refinery'] },
+        { type: 'radar_facility', isBuilding: true, name: 'Radar Facility', cost: 600, req: ['ore_refinery'] },
+        { type: 'energy_storage', isBuilding: true, name: 'Energy Storage', cost: 250, req: ['power_plant'] }
       ];
     } else if (this.activeTab === 'defenses') {
       items = [
-        { type: 'turret_gun', isBuilding: true, icon: '🛡️', name: 'MG Turret', cost: 350, req: ['barracks'] },
-        { type: 'turret_rocket', isBuilding: true, icon: '🚀', name: 'Rocket Turret', cost: 550, req: ['radar_facility'] },
-        { type: 'turret_laser', isBuilding: true, icon: '💎', name: 'Laser Obelisk', cost: 800, req: ['radar_facility', 'power_plant'] },
-        { type: 'wall', isBuilding: true, icon: '🧱', name: 'Wall Segment', cost: 50, req: [] }
+        { type: 'turret_gun', isBuilding: true, name: 'MG Turret', cost: 350, req: ['barracks'] },
+        { type: 'turret_rocket', isBuilding: true, name: 'Rocket Turret', cost: 550, req: ['radar_facility'] },
+        { type: 'turret_laser', isBuilding: true, name: 'Laser Obelisk', cost: 800, req: ['radar_facility', 'power_plant'] },
+        { type: 'wall', isBuilding: true, name: 'Wall Segment', cost: 50, req: [] }
       ];
     } else if (this.activeTab === 'infantry') {
       items = [
-        { type: 'machine_gunner', isBuilding: false, icon: '💂', name: 'Machine Gunner', cost: 100, req: ['barracks'] },
-        { type: 'grenadier', isBuilding: false, icon: '💣', name: 'Grenadier', cost: 160, req: ['barracks'] },
-        { type: 'rocket_launcher', isBuilding: false, icon: '🎯', name: 'Rocket Soldier', cost: 220, req: ['barracks'] },
-        { type: 'engineer', isBuilding: false, icon: '🔧', name: 'Combat Engineer', cost: 250, req: ['barracks'] }
+        { type: 'machine_gunner', isBuilding: false, name: 'Machine Gunner', cost: 100, req: ['barracks'] },
+        { type: 'grenadier', isBuilding: false, name: 'Grenadier', cost: 160, req: ['barracks'] },
+        { type: 'rocket_launcher', isBuilding: false, name: 'Rocket Soldier', cost: 220, req: ['barracks'] },
+        { type: 'engineer', isBuilding: false, name: 'Combat Engineer', cost: 250, req: ['barracks'] }
       ];
     } else if (this.activeTab === 'vehicles') {
       items = [
-        { type: 'light_tracks', isBuilding: false, icon: '🚜', name: 'Light Tracks', cost: 400, req: ['war_factory'] },
-        { type: '4x4_gunner', isBuilding: false, icon: '🚙', name: '4x4 Gunner', cost: 350, req: ['war_factory'] },
-        { type: 'battle_tank', isBuilding: false, icon: '🛡️', name: 'Battle Tank', cost: 800, req: ['war_factory'] },
-        { type: 'harvester', isBuilding: false, icon: '⛏️', name: 'Ore Harvester', cost: 500, req: ['ore_refinery'] },
-        { type: 'laser_colossus', isBuilding: false, icon: '⚡', name: 'Laser Colossus', cost: 1600, req: ['war_factory', 'radar_facility'] },
-        { type: 'helicopter', isBuilding: false, icon: '🚁', name: 'Attack Chopper', cost: 750, req: ['war_factory', 'radar_facility'] }
+        { type: 'light_tracks', isBuilding: false, name: 'Light Tracks', cost: 400, req: ['war_factory'] },
+        { type: '4x4_gunner', isBuilding: false, name: '4x4 Gunner', cost: 350, req: ['war_factory'] },
+        { type: 'battle_tank', isBuilding: false, name: 'Battle Tank', cost: 800, req: ['war_factory'] },
+        { type: 'harvester', isBuilding: false, name: 'Ore Harvester', cost: 500, req: ['ore_refinery'] },
+        { type: 'laser_colossus', isBuilding: false, name: 'Laser Colossus', cost: 1600, req: ['war_factory', 'radar_facility'] },
+        { type: 'helicopter', isBuilding: false, name: 'Attack Chopper', cost: 750, req: ['war_factory', 'radar_facility'] }
       ];
     }
 
@@ -269,13 +279,25 @@ class HUD {
 
       card.innerHTML = `
         <div class="queue-badge" id="queue-${item.type}">0</div>
-        <div class="build-card-icon">${item.icon}</div>
+        <div class="build-card-icon"></div>
         <div class="build-card-name">${item.name}</div>
         <div class="build-card-cost">$ ${cost}</div>
         <div class="build-progress-overlay">
           <span class="progress-text">0%</span>
         </div>
       `;
+
+      const iconWrap = card.querySelector('.build-card-icon');
+      if (iconWrap && typeof document !== 'undefined' && document.createElement) {
+        const cameo = document.createElement('canvas');
+        cameo.className = 'cameo-icon';
+        cameo.width = 56;
+        cameo.height = 56;
+        iconWrap.appendChild(cameo);
+        if (typeof HudIcons !== 'undefined') {
+          HudIcons.paint(cameo, item.type, { team: this.ctx.playerTeam || 'blue' });
+        }
+      }
 
       card.addEventListener('click', () => this.onBuildCardClicked(item));
       card.addEventListener('contextmenu', (e) => {
@@ -448,12 +470,9 @@ class HUD {
       hpFillEl.style.width = `${hpPercent}%`;
       hpFillEl.className = hpPercent < 30 ? 'hp-bar-fill low' : (hpPercent < 60 ? 'hp-bar-fill medium' : 'hp-bar-fill');
 
-      let pIcon = '💂';
-      if (primary.type === 'engineer') pIcon = '🔧';
-      else if (primary.type === 'laser_colossus') pIcon = '⚡';
-      else if (primary.isVehicle) pIcon = '🚜';
-      else if (primary.isAir) pIcon = '🚁';
-      portraitEl.textContent = pIcon;
+      if (portraitEl && typeof HudIcons !== 'undefined') {
+        HudIcons.paint(portraitEl, primary.type, { team: this.ctx.playerTeam || 'blue' });
+      }
 
       const rank = primary.rank || 0;
       const rankLabel = rank >= 2 ? 'ELT' : (rank === 1 ? 'VET' : '');
@@ -479,7 +498,9 @@ class HUD {
       hpFillEl.style.width = `${hpPercent}%`;
       hpFillEl.className = hpPercent < 30 ? 'hp-bar-fill low' : (hpPercent < 60 ? 'hp-bar-fill medium' : 'hp-bar-fill');
 
-      portraitEl.textContent = b.type === 'turret_laser' ? '💎' : (b.isTurret ? '🛡️' : '🏛️');
+      if (portraitEl && typeof HudIcons !== 'undefined') {
+        HudIcons.paint(portraitEl, b.type, { team: this.ctx.playerTeam || 'blue' });
+      }
       const powerLabel = b.isBuilding
         ? 'OFFLINE'
         : (b.powerProduced > 0 ? `+${b.powerProduced}` : `-${b.powerConsumed}`);

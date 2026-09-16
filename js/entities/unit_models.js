@@ -26,6 +26,22 @@ class UnitModels {
     }
   }
 
+  static addRoadWheels(group, xs, y, zs, radius, width, mat) {
+    const wheels = group.userData.wheels || [];
+    const geo = new THREE.CylinderGeometry(radius, radius, width, 8);
+    geo.rotateZ(Math.PI / 2);
+    xs.forEach((x) => {
+      zs.forEach((z) => {
+        const wheel = new THREE.Mesh(geo, mat);
+        wheel.position.set(x, y, z);
+        group.add(wheel);
+        wheels.push(wheel);
+      });
+    });
+    group.userData.wheels = wheels;
+    return wheels;
+  }
+
   // --- 1. Machine Gunner (Infantry) ---
   static createMachineGunner(faction = 'player') {
     const colors = this.getFactionColors(faction);
@@ -86,7 +102,7 @@ class UnitModels {
     group.add(gunGroup);
 
     group.scale.set(1.3, 1.3, 1.3);
-    group.userData = { muzzlePos: muzzle, gunGroup: gunGroup, type: 'machine_gunner' };
+    group.userData = { muzzlePos: muzzle, gunGroup: gunGroup, type: 'machine_gunner', leftLeg, rightLeg };
     return group;
   }
 
@@ -154,7 +170,7 @@ class UnitModels {
     group.add(gunGroup);
 
     group.scale.set(1.3, 1.3, 1.3);
-    group.userData = { muzzlePos: muzzle, gunGroup: gunGroup, type: 'grenadier' };
+    group.userData = { muzzlePos: muzzle, gunGroup: gunGroup, type: 'grenadier', leftLeg, rightLeg };
     return group;
   }
 
@@ -211,7 +227,7 @@ class UnitModels {
     group.add(launcherGroup);
 
     group.scale.set(1.3, 1.3, 1.3);
-    group.userData = { muzzlePos: muzzle, gunGroup: launcherGroup, type: 'rocket_launcher' };
+    group.userData = { muzzlePos: muzzle, gunGroup: launcherGroup, type: 'rocket_launcher', leftLeg, rightLeg };
     return group;
   }
 
@@ -231,6 +247,7 @@ class UnitModels {
     const rightTread = new THREE.Mesh(treadGeo, treadMat);
     rightTread.position.set(0.75, 0.25, 0);
     group.add(leftTread, rightTread);
+    this.addRoadWheels(group, [-0.75, 0.75], 0.22, [-0.7, 0, 0.7], 0.22, 0.28, treadMat);
 
     // Chassis Hull
     const hullGeo = new THREE.BoxGeometry(1.2, 0.5, 2.2);
@@ -259,7 +276,7 @@ class UnitModels {
 
     group.add(turretGroup);
     group.scale.set(1.4, 1.4, 1.4);
-    group.userData = { turret: turretGroup, muzzlePos: muzzle, type: 'light_tracks' };
+    group.userData = { turret: turretGroup, muzzlePos: muzzle, type: 'light_tracks', wheels: group.userData.wheels };
     return group;
   }
 
@@ -282,10 +299,12 @@ class UnitModels {
       [-0.8, 0.35, -0.85],
       [0.8, 0.35, -0.85]
     ];
+    const wheels = [];
     wheelPositions.forEach(pos => {
       const wheel = new THREE.Mesh(wheelGeo, tireMat);
       wheel.position.set(pos[0], pos[1], pos[2]);
       group.add(wheel);
+      wheels.push(wheel);
     });
 
     // Buggy Body
@@ -330,7 +349,7 @@ class UnitModels {
     group.add(gunGroup);
 
     group.scale.set(1.35, 1.35, 1.35);
-    group.userData = { turret: gunGroup, muzzlePos: muzzle, type: '4x4_gunner' };
+    group.userData = { turret: gunGroup, muzzlePos: muzzle, type: '4x4_gunner', wheels };
     return group;
   }
 
@@ -351,6 +370,7 @@ class UnitModels {
     const rightTread = new THREE.Mesh(treadGeo, treadMat);
     rightTread.position.set(1.05, 0.35, 0);
     group.add(leftTread, rightTread);
+    this.addRoadWheels(group, [-1.05, 1.05], 0.28, [-1.1, 0, 1.1], 0.28, 0.4, treadMat);
 
     // Main Heavy Hull
     const hullGeo = new THREE.BoxGeometry(1.6, 0.65, 3.0);
@@ -393,7 +413,7 @@ class UnitModels {
     group.add(turretGroup);
 
     group.scale.set(1.3, 1.3, 1.3);
-    group.userData = { turret: turretGroup, muzzlePos: muzzle, type: 'battle_tank' };
+    group.userData = { turret: turretGroup, muzzlePos: muzzle, type: 'battle_tank', wheels: group.userData.wheels };
     return group;
   }
 
@@ -418,6 +438,7 @@ class UnitModels {
     const rightTread = new THREE.Mesh(treadGeo, treadMat);
     rightTread.position.set(1.15, 0.4, 0);
     group.add(leftTread, rightTread);
+    this.addRoadWheels(group, [-1.15, 1.15], 0.32, [-1.2, 0, 1.2], 0.3, 0.42, treadMat);
 
     // Main Industrial Cab & Chassis
     const chassisGeo = new THREE.BoxGeometry(1.8, 0.75, 3.2);
@@ -452,7 +473,7 @@ class UnitModels {
     group.add(oreCargo);
 
     group.scale.set(1.2, 1.2, 1.2);
-    group.userData = { drill: drill, oreCargo: oreCargo, type: 'harvester' };
+    group.userData = { drill: drill, oreCargo: oreCargo, type: 'harvester', wheels: group.userData.wheels };
     return group;
   }
 
@@ -650,7 +671,7 @@ class UnitModels {
     group.add(tabletGroup);
 
     group.scale.set(1.25, 1.25, 1.25);
-    group.userData = { isEngineer: true, type: 'engineer' };
+    group.userData = { isEngineer: true, type: 'engineer', leftLeg, rightLeg };
     return group;
   }
 
@@ -690,6 +711,7 @@ class UnitModels {
       strut.position.set(pos[0] * 0.6, 0.7, pos[2]);
       group.add(strut);
     });
+    this.addRoadWheels(group, [-1.5, 1.5], 0.28, [-1.3, 1.3], 0.32, 0.45, treadMat);
 
     // Massive Main Chassis
     const chassisGeo = new THREE.BoxGeometry(2.4, 0.9, 3.4);
@@ -738,7 +760,8 @@ class UnitModels {
       muzzlePos: muzzle,
       crystals: [leftCrystal, rightCrystal, corePrism],
       isSuperUnit: true,
-      type: 'laser_colossus'
+      type: 'laser_colossus',
+      wheels: group.userData.wheels
     };
     return group;
   }

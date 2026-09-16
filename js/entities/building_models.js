@@ -539,4 +539,21 @@ class BuildingModels {
     };
     return group;
   }
+
+  static create(type, faction = 'player') {
+    switch (type) {
+      case 'command_center': return this.createCommandCenter(faction);
+      case 'power_plant': return this.createPowerPlant(faction);
+      case 'energy_storage': return this.createEnergyStorage(faction);
+      case 'ore_refinery': return this.createOreRefinery(faction);
+      case 'barracks': return this.createBarracks(faction);
+      case 'war_factory': return this.createWarFactory(faction);
+      case 'radar_facility': return this.createRadarFacility(faction);
+      case 'turret_gun': return this.createGunTurret(faction);
+      case 'turret_rocket': return this.createRocketTurret(faction);
+      case 'turret_laser': return this.createLaserTurret(faction);
+      case 'wall': return this.createWallSegment(faction);
+      default: return this.createCommandCenter(faction);
+    }
+  }
 }

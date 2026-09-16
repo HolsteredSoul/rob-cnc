@@ -55,56 +55,101 @@ generateTerrainMesh() {
   this.scene.add(this.groundMesh);
 }
 
+  applyBiomeAtmosphere() {
+    if (!this.scene) return;
+    if (this.biome === 'desert') {
+      this.scene.background = new THREE.Color(0x2c2416);
+      this.scene.fog = new THREE.FogExp2(0x2c2416, 0.0032);
+    } else if (this.biome === 'snow') {
+      this.scene.background = new THREE.Color(0x1a242c);
+      this.scene.fog = new THREE.FogExp2(0x1a242c, 0.0038);
+    } else {
+      this.scene.background = new THREE.Color(0x0e1317);
+      this.scene.fog = new THREE.FogExp2(0x0e1317, 0.0035);
+    }
+  }
+
   createTerrainTexture() {
+    this.applyBiomeAtmosphere();
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
     canvas.height = 1024;
     const ctx = canvas.getContext('2d');
+    const biome = this.biome;
 
-    // Biome base colors
-    let colGrass = '#33482d'; // Dark alpine meadow green
-    let colDirt = '#4a402d';  // Mountain soil
-    let colRock = '#3e4448';  // Granite cliff
+    let colGrass = '#33482d';
+    let colDirt = '#4a402d';
+    let colRock = '#3e4448';
+    let colAccent = '#2a3a24';
 
-    if (this.biome === 'desert') {
-      colGrass = '#9c8152'; // Golden canyon sand
-      colDirt = '#7d6338';  // Darker sandstone
-      colRock = '#5a462b';  // Canyon cliffs
-    } else if (this.biome === 'snow') {
-      colGrass = '#9eaeb6'; // Tundra frost
-      colDirt = '#4d5b63';  // Cold gravel
-      colRock = '#354148';  // Slate rock
+    if (biome === 'desert') {
+      colGrass = '#c4a36a';
+      colDirt = '#9c7a45';
+      colRock = '#6b4e2c';
+      colAccent = '#e0c07a';
+    } else if (biome === 'snow') {
+      colGrass = '#d8e2e8';
+      colDirt = '#8a9aa4';
+      colRock = '#4a5860';
+      colAccent = '#f4f7fa';
     }
 
-    // Fill base
     ctx.fillStyle = colGrass;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Soft organic noise patches
-    for (let i = 0; i < 600; i++) {
+    const blobCount = biome === 'desert' ? 420 : (biome === 'snow' ? 380 : 600);
+    for (let i = 0; i < blobCount; i++) {
       const x = Math.random() * canvas.width;
       const y = Math.random() * canvas.height;
-      const r = 20 + Math.random() * 55;
-
+      const r = (biome === 'snow' ? 12 : 20) + Math.random() * (biome === 'desert' ? 80 : 55);
       const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
       grad.addColorStop(0, Math.random() > 0.5 ? colDirt : colRock);
       grad.addColorStop(1, 'transparent');
-
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Organic mountain trail contours
-    ctx.strokeStyle = 'rgba(55, 48, 36, 0.45)';
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.moveTo(120, 480);
-    ctx.quadraticCurveTo(450, 400, 890, 560);
-    ctx.moveTo(500, 150);
-    ctx.quadraticCurveTo(550, 520, 480, 880);
-    ctx.stroke();
+    if (biome === 'desert') {
+      ctx.strokeStyle = 'rgba(180, 140, 70, 0.35)';
+      ctx.lineWidth = 18;
+      for (let i = 0; i < 8; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, 80 + i * 120);
+        ctx.quadraticCurveTo(400, 40 + i * 120, 1024, 120 + i * 110);
+        ctx.stroke();
+      }
+      ctx.fillStyle = colAccent;
+      for (let i = 0; i < 40; i++) {
+        ctx.globalAlpha = 0.15;
+        ctx.fillRect(Math.random() * 1024, Math.random() * 1024, 80 + Math.random() * 120, 6);
+      }
+      ctx.globalAlpha = 1;
+    } else if (biome === 'snow') {
+      ctx.fillStyle = colAccent;
+      for (let i = 0; i < 900; i++) {
+        ctx.globalAlpha = 0.25 + Math.random() * 0.5;
+        const r = 1 + Math.random() * 2.5;
+        ctx.beginPath();
+        ctx.arc(Math.random() * 1024, Math.random() * 1024, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = colDirt;
+      ctx.fillRect(0, 420, 1024, 28);
+      ctx.fillRect(0, 710, 1024, 18);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.strokeStyle = 'rgba(55, 48, 36, 0.45)';
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.moveTo(120, 480);
+      ctx.quadraticCurveTo(450, 400, 890, 560);
+      ctx.moveTo(500, 150);
+      ctx.quadraticCurveTo(550, 520, 480, 880);
+      ctx.stroke();
+    }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
@@ -198,8 +243,8 @@ generateTerrainMesh() {
   createRockCluster(cx, cz, count = 5, scale = 2) {
     const rockGeo = new THREE.DodecahedronGeometry(1.4, 1);
     const rockMat = new THREE.MeshStandardMaterial({
-      color: this.biome === 'desert' ? 0x6e5233 : 0x3d4952,
-      roughness: 0.92,
+      color: this.biome === 'desert' ? 0x8a6a3a : (this.biome === 'snow' ? 0x8a9aa6 : 0x3d4952),
+      roughness: this.biome === 'snow' ? 0.55 : 0.92,
       metalness: 0.08
     });
 
@@ -221,18 +266,7 @@ generateTerrainMesh() {
     }
   }
 
-  // Procedural 3D Forest Groves (Evergreen Pines & Deciduous Trees)
   generateForestGroves() {
-    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3e2723 }); // Deep brown wood
-    const pineMat1 = new THREE.MeshLambertMaterial({ color: 0x1b4332 }); // Dark pine
-    const pineMat2 = new THREE.MeshLambertMaterial({ color: 0x2d6a4f }); // Forest green
-    const deciduousMat = new THREE.MeshLambertMaterial({ color: 0x40916c });
-
-    const trunkGeo = new THREE.CylinderGeometry(0.18, 0.28, 1.8, 6);
-    const coneGeo = new THREE.ConeGeometry(1.4, 2.2, 7);
-    const sphereGeo = new THREE.SphereGeometry(1.2, 6, 6);
-
-    // Distribute tree groves naturally in valleys and foothills
     const groveCenters = [
       { x: 30, z: 80, count: 18, radius: 14 },
       { x: 85, z: 25, count: 16, radius: 12 },
@@ -242,60 +276,112 @@ generateTerrainMesh() {
       { x: 170, z: 85, count: 15, radius: 12 }
     ];
 
-    groveCenters.forEach(grove => {
-      for (let i = 0; i < grove.count; i++) {
+    groveCenters.forEach((grove) => {
+      const count = this.biome === 'desert' ? Math.floor(grove.count * 0.45) : grove.count;
+      for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
         const dist = Math.random() * grove.radius;
         const tx = grove.x + Math.cos(angle) * dist;
         const tz = grove.z + Math.sin(angle) * dist;
-
         if (tx < 6 || tx > this.worldWidth - 6 || tz < 6 || tz > this.worldHeight - 6) continue;
-
         const ty = this.getElevation(tx, tz);
-        // Avoid placing on extremely steep cliff summits
         if (ty > 14) continue;
 
-        const treeGroup = new THREE.Group();
-        treeGroup.position.set(tx, ty, tz);
-
-        const isPine = Math.random() > 0.35;
-        const scale = 0.8 + Math.random() * 0.5;
-
-        // Trunk
-        const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-        trunk.position.set(0, 0.9, 0);
-        trunk.castShadow = true;
-        treeGroup.add(trunk);
-
-        if (isPine) {
-          // Tiered Pine Foliage (3 stacked cones)
-          const mat = Math.random() > 0.5 ? pineMat1 : pineMat2;
-          for (let tier = 0; tier < 3; tier++) {
-            const tierMesh = new THREE.Mesh(coneGeo, mat);
-            const tierScale = (1 - tier * 0.22);
-            tierMesh.scale.set(tierScale, tierScale, tierScale);
-            tierMesh.position.set(0, 1.8 + tier * 1.1, 0);
-            tierMesh.castShadow = true;
-            treeGroup.add(tierMesh);
-          }
-        } else {
-          // Deciduous Canopy (organic clustered spheres)
-          const canopy = new THREE.Mesh(sphereGeo, deciduousMat);
-          canopy.position.set(0, 2.2, 0);
-          canopy.scale.set(1.2, 1.1, 1.2);
-          canopy.castShadow = true;
-          treeGroup.add(canopy);
-        }
-
-        treeGroup.scale.set(scale, scale, scale);
-        treeGroup.rotation.y = Math.random() * Math.PI * 2;
-        this.scene.add(treeGroup);
-        this.trees.push(treeGroup);
-
-        // Mark tree obstacle in grid (blocks light movement)
-        this.setBlocked(tx, tz, 1.0, true);
+        const prop = this.biome === 'desert'
+          ? this.createDesertProp()
+          : (this.biome === 'snow' ? this.createSnowPine() : this.createTemperateTree());
+        const scale = 0.75 + Math.random() * 0.55;
+        prop.position.set(tx, ty, tz);
+        prop.scale.set(scale, scale, scale);
+        prop.rotation.y = Math.random() * Math.PI * 2;
+        this.scene.add(prop);
+        this.trees.push(prop);
+        this.setBlocked(tx, tz, this.biome === 'desert' ? 0.7 : 1.0, true);
       }
     });
+  }
+
+  createTemperateTree() {
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3e2723 });
+    const pineMat = new THREE.MeshLambertMaterial({ color: Math.random() > 0.5 ? 0x1b4332 : 0x2d6a4f });
+    const deciduousMat = new THREE.MeshLambertMaterial({ color: 0x40916c });
+    const group = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 1.8, 6), trunkMat);
+    trunk.position.set(0, 0.9, 0);
+    trunk.castShadow = true;
+    group.add(trunk);
+    if (Math.random() > 0.35) {
+      for (let tier = 0; tier < 3; tier++) {
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(1.4, 2.2, 7), pineMat);
+        const ts = 1 - tier * 0.22;
+        cone.scale.set(ts, ts, ts);
+        cone.position.set(0, 1.8 + tier * 1.1, 0);
+        cone.castShadow = true;
+        group.add(cone);
+      }
+    } else {
+      const canopy = new THREE.Mesh(new THREE.SphereGeometry(1.2, 6, 6), deciduousMat);
+      canopy.position.set(0, 2.2, 0);
+      canopy.scale.set(1.2, 1.1, 1.2);
+      canopy.castShadow = true;
+      group.add(canopy);
+    }
+    return group;
+  }
+
+  createDesertProp() {
+    const cactusMat = new THREE.MeshLambertMaterial({ color: 0x4a6a3a });
+    const deadMat = new THREE.MeshLambertMaterial({ color: 0x6b542e });
+    const group = new THREE.Group();
+    if (Math.random() > 0.4) {
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 2.4, 8), cactusMat);
+      stem.position.y = 1.2;
+      stem.castShadow = true;
+      group.add(stem);
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 1.1, 6), cactusMat);
+      arm.position.set(0.45, 1.5, 0);
+      arm.rotation.z = -1.1;
+      group.add(arm);
+      const arm2 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.8, 6), cactusMat);
+      arm2.position.set(-0.35, 1.7, 0);
+      arm2.rotation.z = 1.05;
+      group.add(arm2);
+    } else {
+      const bush = new THREE.Mesh(new THREE.SphereGeometry(0.55, 5, 5), deadMat);
+      bush.position.y = 0.4;
+      bush.scale.set(1.4, 0.6, 1.1);
+      bush.castShadow = true;
+      group.add(bush);
+      const twig = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 1.2, 4), deadMat);
+      twig.position.set(0.1, 0.9, 0);
+      twig.rotation.z = 0.4;
+      group.add(twig);
+    }
+    return group;
+  }
+
+  createSnowPine() {
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3a332c });
+    const needleMat = new THREE.MeshLambertMaterial({ color: 0x4d5c58 });
+    const snowMat = new THREE.MeshLambertMaterial({ color: 0xe8eef2 });
+    const group = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.24, 1.6, 6), trunkMat);
+    trunk.position.y = 0.8;
+    trunk.castShadow = true;
+    group.add(trunk);
+    for (let tier = 0; tier < 3; tier++) {
+      const ts = 1 - tier * 0.24;
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(1.3, 1.9, 7), needleMat);
+      cone.scale.set(ts, ts, ts);
+      cone.position.set(0, 1.6 + tier * 0.95, 0);
+      cone.castShadow = true;
+      group.add(cone);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(1.05, 0.45, 7), snowMat);
+      cap.scale.set(ts, ts, ts);
+      cap.position.set(0, 2.15 + tier * 0.95, 0);
+      group.add(cap);
+    }
+    return group;
   }
 
   // Grid coordinates helper

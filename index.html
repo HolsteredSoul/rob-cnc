@@ -50,7 +50,7 @@
       <!-- Unit / Structure Selection HUD Card -->
       <div id="selection-card" class="hidden">
         <div class="selection-portrait">
-          <span class="portrait-icon" id="selected-portrait-icon">&#128130;</span>
+          <canvas id="selected-portrait-icon" class="cameo-icon" width="58" height="58"></canvas>
         </div>
         <div class="selection-info">
           <div class="selection-title-row">
@@ -147,12 +147,12 @@
         <div class="lobby-section-label">1. SELECT YOUR FACTION</div>
         <div class="team-selector">
           <div class="team-card team-blue selected" id="team-blue" data-team="blue">
-            <div class="team-flag" style="color:#00b0ff; font-size:28px;">&#9654;</div>
+            <canvas class="team-cameo" data-faction="blue" width="72" height="72"></canvas>
             <div class="team-name" style="color:#00b0ff;">BLUE FORCE</div>
             <div class="team-desc">Global Defense Initiative<br>Heavy armor &amp; precision strikes</div>
           </div>
           <div class="team-card team-red" id="team-red" data-team="red">
-            <div class="team-flag" style="color:#ff3333; font-size:28px;">&#9654;</div>
+            <canvas class="team-cameo" data-faction="red" width="72" height="72"></canvas>
             <div class="team-name" style="color:#ff3333;">RED FORCE</div>
             <div class="team-desc">Brotherhood of Nod<br>Speed, stealth &amp; terror tactics</div>
           </div>
@@ -300,6 +300,7 @@
   <script src="js/ai/skirmish_ai.js"></script>
   <script src="js/levels/mission_levels.js"></script>
   <script src="js/ui/minimap.js"></script>
+  <script src="js/ui/icons.js"></script>
   <script src="js/ui/hud.js"></script>
   <script src="js/main.js"></script>
 </body>

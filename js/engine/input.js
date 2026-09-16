@@ -25,6 +25,9 @@ class InputManager {
     this.lastClickAt = 0;
     this.lastClickUnitType = null;
 
+    this.movePips = [];
+    this.attackBracket = null;
+
     this.initListeners();
   }
 
@@ -132,7 +135,7 @@ class InputManager {
         const worldH = spec.footprint.h * this.ctx.terrain.tileSize;
         this.ghostMesh.position.set(
           gridPos.gx * this.ctx.terrain.tileSize + worldW / 2,
-          0.1,
+          0,
           gridPos.gz * this.ctx.terrain.tileSize + worldH / 2
         );
 
@@ -254,10 +257,15 @@ class InputManager {
     }
 
     if (this.commandMode === 'attackmove' && worldPos) {
-      entityManager.selectedUnits.forEach((u) => {
-        if (typeof u.attackMoveTo === 'function') u.attackMoveTo(worldPos.x, worldPos.z, this.ctx.pathfinding);
-        else u.moveTo(worldPos.x, worldPos.z, this.ctx.pathfinding);
-      });
+      if (typeof entityManager.issueMoveOrders === 'function') {
+        entityManager.issueMoveOrders(entityManager.selectedUnits, worldPos.x, worldPos.z, this.ctx.pathfinding, { attackMove: true });
+      } else {
+        entityManager.selectedUnits.forEach((u) => {
+          if (typeof u.attackMoveTo === 'function') u.attackMoveTo(worldPos.x, worldPos.z, this.ctx.pathfinding);
+          else u.moveTo(worldPos.x, worldPos.z, this.ctx.pathfinding);
+        });
+      }
+      this.spawnGroundPip(worldPos.x, worldPos.z, 0xff5555, 0.7);
       if (soundFX) soundFX.playOrder();
       this.setCommandMode('normal');
       return;
@@ -339,6 +347,7 @@ class InputManager {
             u.attackTarget(enemyTarget, pathfinding);
           }
         });
+        this.spawnGroundPip(worldPos.x, worldPos.z, 0x00e5ff, 0.7);
         if (soundFX) soundFX.playOrder();
         return;
       }
@@ -347,6 +356,7 @@ class InputManager {
       entityManager.selectedUnits.forEach(u => {
         u.attackTarget(enemyTarget, pathfinding);
       });
+      this.showAttackBracket(enemyTarget);
       if (soundFX) soundFX.playOrder();
     } else if (isClickingOre) {
       // HARVEST ORDER
@@ -357,6 +367,7 @@ class InputManager {
           u.moveTo(worldPos.x, worldPos.z, pathfinding);
         }
       });
+      this.spawnGroundPip(oreDeposit.x, oreDeposit.z, 0xffaa00, 0.8);
       if (soundFX) soundFX.playOrder();
     } else if (friendlyRefinery && friendlyRefinery.type === 'ore_refinery') {
       // RETURN WITH CARGO
@@ -369,6 +380,7 @@ class InputManager {
     } else if (entityManager.selectedUnits.length === 0 && entityManager.selectedBuilding && entityManager.selectedBuilding.isProducer && entityManager.selectedBuilding.faction === 'player') {
       entityManager.selectedBuilding.setRally(worldPos.x, worldPos.z);
       entityManager.selectedBuilding.setRallyVisible(true);
+      this.spawnGroundPip(worldPos.x, worldPos.z, 0xffd700, 0.75);
       if (soundFX) soundFX.playOrder();
     } else {
       const friendly = this.getEntityAt(worldPos.x, worldPos.z, 'player');
@@ -379,16 +391,26 @@ class InputManager {
         });
         if (soundFX) soundFX.playOrder();
       } else if (wantAttackMove) {
-        entityManager.selectedUnits.forEach((u) => {
-          if (typeof u.attackMoveTo === 'function') u.attackMoveTo(worldPos.x, worldPos.z, pathfinding);
-          else u.moveTo(worldPos.x, worldPos.z, pathfinding);
-        });
+        if (typeof entityManager.issueMoveOrders === 'function') {
+          entityManager.issueMoveOrders(entityManager.selectedUnits, worldPos.x, worldPos.z, pathfinding, { attackMove: true });
+        } else {
+          entityManager.selectedUnits.forEach((u) => {
+            if (typeof u.attackMoveTo === 'function') u.attackMoveTo(worldPos.x, worldPos.z, pathfinding);
+            else u.moveTo(worldPos.x, worldPos.z, pathfinding);
+          });
+        }
+        this.spawnGroundPip(worldPos.x, worldPos.z, 0xff5555, 0.7);
         if (soundFX) soundFX.playOrder();
         if (this.commandMode === 'attackmove') this.setCommandMode('normal');
       } else {
-        entityManager.selectedUnits.forEach(u => {
-          u.moveTo(worldPos.x, worldPos.z, pathfinding);
-        });
+        if (typeof entityManager.issueMoveOrders === 'function') {
+          entityManager.issueMoveOrders(entityManager.selectedUnits, worldPos.x, worldPos.z, pathfinding);
+        } else {
+          entityManager.selectedUnits.forEach((u) => {
+            u.moveTo(worldPos.x, worldPos.z, pathfinding);
+          });
+        }
+        this.spawnGroundPip(worldPos.x, worldPos.z, 0x33ff66, 0.65);
         if (soundFX) soundFX.playOrder();
       }
 
@@ -429,31 +451,94 @@ class InputManager {
     const spec = BUILDING_SPECS[buildingType];
     if (!spec) return;
 
-    // Create ghost mesh
     if (this.ghostMesh) {
       this.ctx.renderer.scene.remove(this.ghostMesh);
+      this.ghostMesh = null;
     }
 
-    const geo = new THREE.BoxGeometry(
-      spec.footprint.w * this.ctx.terrain.tileSize,
-      1.5,
-      spec.footprint.h * this.ctx.terrain.tileSize
-    );
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x00ff66,
-      transparent: true,
-      opacity: 0.55,
-      wireframe: true
-    });
+    const group = new THREE.Group();
+    const model = (typeof BuildingModels !== 'undefined' && BuildingModels.create)
+      ? BuildingModels.create(buildingType, 'player')
+      : new THREE.Mesh(
+        new THREE.BoxGeometry(spec.footprint.w * this.ctx.terrain.tileSize, 1.5, spec.footprint.h * this.ctx.terrain.tileSize),
+        new THREE.MeshBasicMaterial({ color: 0x00ff66, transparent: true, opacity: 0.5, wireframe: true })
+      );
+    this.makeGhostHologram(model);
+    group.add(model);
+    group.add(this.createFootprintGrid(spec.footprint));
+    group.userData.buildingRoot = model;
 
-    this.ghostMesh = new THREE.Mesh(geo, mat);
+    this.ghostMesh = group;
     this.ctx.renderer.scene.add(this.ghostMesh);
+    this.updateGhostColor(true);
     if (this.ctx.soundFX) this.ctx.soundFX.playClick();
+  }
+
+  makeGhostHologram(root) {
+    root.traverse((obj) => {
+      obj.castShadow = false;
+      obj.receiveShadow = false;
+      if (!obj.material) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      const cloned = mats.map((m) => {
+        const copy = m.clone();
+        copy.transparent = true;
+        copy.opacity = 0.48;
+        copy.depthWrite = false;
+        if (copy.emissive) copy.emissive.setHex(0x145c2e);
+        return copy;
+      });
+      obj.material = cloned.length === 1 ? cloned[0] : cloned;
+    });
+  }
+
+  createFootprintGrid(footprint) {
+    const tile = this.ctx.terrain.tileSize;
+    const group = new THREE.Group();
+    group.userData.isGrid = true;
+    const worldW = footprint.w * tile;
+    const worldH = footprint.h * tile;
+    for (let dz = 0; dz < footprint.h; dz++) {
+      for (let dx = 0; dx < footprint.w; dx++) {
+        const geo = new THREE.PlaneGeometry(tile * 0.88, tile * 0.88);
+        geo.rotateX(-Math.PI / 2);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0x33ff66,
+          transparent: true,
+          opacity: 0.32,
+          depthWrite: false,
+          side: THREE.DoubleSide
+        });
+        const cell = new THREE.Mesh(geo, mat);
+        cell.position.set(
+          (dx + 0.5) * tile - worldW / 2,
+          0.06,
+          (dz + 0.5) * tile - worldH / 2
+        );
+        cell.userData.isGrid = true;
+        group.add(cell);
+      }
+    }
+    return group;
   }
 
   updateGhostColor(isValid) {
     if (!this.ghostMesh) return;
-    this.ghostMesh.material.color.setHex(isValid ? 0x00ff66 : 0xff2222);
+    const hex = isValid ? 0x33ff66 : 0xff3333;
+    const emissive = isValid ? 0x145c2e : 0x5c1414;
+    this.ghostMesh.traverse((obj) => {
+      if (!obj.material) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach((m) => {
+        if (obj.userData && obj.userData.isGrid) {
+          m.color.setHex(hex);
+          m.opacity = isValid ? 0.32 : 0.48;
+        } else {
+          if (m.emissive) m.emissive.setHex(emissive);
+          m.opacity = 0.48;
+        }
+      });
+    });
   }
 
   checkPlacementValidity(gx, gz, footprint) {
@@ -674,7 +759,101 @@ class InputManager {
       this.cancelBuildingPlacement();
       this.setCommandMode('normal');
       this.ctx.entityManager.clearSelection();
+      if (this.attackBracket) this.attackBracket.visible = false;
       if (this.ctx.renderer) this.ctx.renderer.syncCursorHud();
+    }
+  }
+
+  spawnGroundPip(x, z, color, life) {
+    if (!this.ctx.renderer || !this.ctx.renderer.scene) return;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.28, 0.72, 24),
+      new THREE.MeshBasicMaterial({
+        color: color || 0x33ff66,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, 0.14, z);
+    this.ctx.renderer.scene.add(ring);
+    this.movePips.push({ mesh: ring, life: life || 0.65, maxLife: life || 0.65 });
+  }
+
+  ensureAttackBracket() {
+    if (this.attackBracket) return this.attackBracket;
+    const g = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff3333, depthTest: false, depthWrite: false });
+    const arm = 0.85;
+    const thick = 0.09;
+    const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+    corners.forEach(([sx, sz]) => {
+      const hx = new THREE.Mesh(new THREE.BoxGeometry(arm, thick, thick), mat);
+      hx.position.set(sx * 1.05, 0, sz * 1.35);
+      const hz = new THREE.Mesh(new THREE.BoxGeometry(thick, thick, arm), mat);
+      hz.position.set(sx * 1.35, 0, sz * 1.05);
+      g.add(hx, hz);
+    });
+    g.visible = false;
+    this.ctx.renderer.scene.add(g);
+    this.attackBracket = g;
+    return g;
+  }
+
+  showAttackBracket(target) {
+    const g = this.ensureAttackBracket();
+    if (!target || !target.isAlive) {
+      g.visible = false;
+      g.userData.target = null;
+      return;
+    }
+    g.userData.target = target;
+    g.visible = true;
+  }
+
+  update(delta) {
+    for (let i = this.movePips.length - 1; i >= 0; i--) {
+      const pip = this.movePips[i];
+      pip.life -= delta;
+      const t = Math.max(0, pip.life / pip.maxLife);
+      pip.mesh.scale.setScalar(1 + (1 - t) * 1.4);
+      if (pip.mesh.material) pip.mesh.material.opacity = t * 0.95;
+      if (pip.life <= 0) {
+        if (pip.mesh.parent) pip.mesh.parent.remove(pip.mesh);
+        this.movePips.splice(i, 1);
+      }
+    }
+
+    const em = this.ctx.entityManager;
+    let target = null;
+    if (em) {
+      for (let i = 0; i < em.selectedUnits.length; i++) {
+        const u = em.selectedUnits[i];
+        if (u && u.isAlive && u.targetEntity && u.targetEntity.isAlive) {
+          target = u.targetEntity;
+          break;
+        }
+      }
+    }
+    if (target) this.showAttackBracket(target);
+    else if (this.attackBracket) {
+      const held = this.attackBracket.userData.target;
+      if (!held || !held.isAlive) this.attackBracket.visible = false;
+    }
+
+    if (this.attackBracket && this.attackBracket.visible) {
+      const t = this.attackBracket.userData.target;
+      if (t && t.isAlive && t.position) {
+        const y = (t.healthBarHeight ? t.healthBarHeight() : 2.4) * 0.45;
+        this.attackBracket.position.set(t.position.x, y, t.position.z);
+        const pulse = 1 + Math.sin((typeof performance !== 'undefined' ? performance.now() : Date.now()) * 0.008) * 0.08;
+        const scale = (t.isVehicle || t.footprint) ? 1.45 : 1;
+        this.attackBracket.scale.set(scale * pulse, 1, scale * pulse);
+      } else {
+        this.attackBracket.visible = false;
+      }
     }
   }
 }

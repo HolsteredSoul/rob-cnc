@@ -203,6 +203,18 @@ class MissionManager {
     terrain.generateTerrainMesh();
     terrain.setupLevelEnvironment(mission.oreFields, mission.rockClusters);
 
+    if (this.gameContext.inputManager && this.gameContext.inputManager.cancelBuildingPlacement) {
+      this.gameContext.inputManager.cancelBuildingPlacement();
+    }
+    if (this.gameContext.inputManager) {
+      const im = this.gameContext.inputManager;
+      if (im.movePips) {
+        im.movePips.forEach((p) => { if (p.mesh && p.mesh.parent) p.mesh.parent.remove(p.mesh); });
+        im.movePips = [];
+      }
+      if (im.attackBracket) im.attackBracket.visible = false;
+    }
+
     // 2. Reset Entities
     entityManager.clearAll();
 

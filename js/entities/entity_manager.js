@@ -29,6 +29,7 @@ class EntityManager {
       this.scene.remove(b.mesh);
       if (b.scaffold) this.scene.remove(b.scaffold);
       if (b.rallyMarker) this.scene.remove(b.rallyMarker);
+      if (b.healthBar) this.scene.remove(b.healthBar);
       b.setTerrainGrid(this.terrain, false);
     });
     this.buildings = [];
@@ -107,6 +108,7 @@ class EntityManager {
         this.scene.remove(b.mesh);
         if (b.scaffold) this.scene.remove(b.scaffold);
         if (b.rallyMarker) this.scene.remove(b.rallyMarker);
+        if (b.healthBar) this.scene.remove(b.healthBar);
         if (this.selectedBuilding === b) {
           this.selectedBuilding = null;
         }
@@ -121,6 +123,7 @@ class EntityManager {
         } else {
           b.mesh.visible = true;
         }
+        if (b.healthBar && !b.mesh.visible) b.healthBar.visible = false;
       }
     }
 
@@ -128,9 +131,60 @@ class EntityManager {
     this.applyUnitSeparation(delta);
   }
 
-  // Soft push apart between moving units
+  formationSlots(count, cx, cz, spacing) {
+    const slots = [];
+    if (count <= 0) return slots;
+    if (count === 1) return [{ x: cx, z: cz }];
+    const cols = Math.ceil(Math.sqrt(count));
+    const rows = Math.ceil(count / cols);
+    const originX = -((cols - 1) * spacing) / 2;
+    const originZ = -((rows - 1) * spacing) / 2;
+    let n = 0;
+    for (let r = 0; r < rows && n < count; r++) {
+      for (let c = 0; c < cols && n < count; c++) {
+        slots.push({ x: cx + originX + c * spacing, z: cz + originZ + r * spacing });
+        n++;
+      }
+    }
+    return slots;
+  }
+
+  resolveWalkableSlot(x, z, pathfinding, fallbackX, fallbackZ) {
+    if (!this.terrain) return { x, z };
+    if (!this.terrain.isBlocked(x, z)) return { x, z };
+    if (pathfinding && pathfinding.findNearestWalkableTile) {
+      const g = this.terrain.worldToGrid(x, z);
+      const alt = pathfinding.findNearestWalkableTile(g.gx, g.gz);
+      if (alt) {
+        const w = this.terrain.gridToWorld(alt.gx, alt.gz);
+        return { x: w.x, z: w.z };
+      }
+    }
+    return { x: fallbackX, z: fallbackZ };
+  }
+
+  issueMoveOrders(units, destX, destZ, pathfinding, options) {
+    const attackMove = !!(options && options.attackMove);
+    const live = (units || []).filter((u) => u && u.isAlive);
+    if (!live.length) return;
+    const spacing = live.some((u) => u.isVehicle) ? 3.0 : 2.2;
+    const slots = this.formationSlots(live.length, destX, destZ, spacing);
+    live.forEach((u, i) => {
+      const raw = slots[i] || { x: destX, z: destZ };
+      const slot = u.isAir ? raw : this.resolveWalkableSlot(raw.x, raw.z, pathfinding, destX, destZ);
+      if (attackMove && typeof u.attackMoveTo === 'function') u.attackMoveTo(slot.x, slot.z, pathfinding);
+      else u.moveTo(slot.x, slot.z, pathfinding);
+    });
+  }
+
+  isDockLocked(unit) {
+    if (!unit || unit.type !== 'harvester') return false;
+    return unit.harvesterState === 'UNLOADING' || unit.harvesterState === 'MINING';
+  }
+
   applyUnitSeparation(delta) {
     const count = this.units.length;
+    const push = 18 * delta;
     for (let i = 0; i < count; i++) {
       const u1 = this.units[i];
       if (!u1.isAlive || u1.isAir) continue;
@@ -141,22 +195,46 @@ class EntityManager {
 
         const dx = u1.position.x - u2.position.x;
         const dz = u1.position.z - u2.position.z;
-        const distSq = dx * dx + dz * dz;
-        const minDist = (u1.isVehicle ? 2.0 : 1.2) + (u2.isVehicle ? 2.0 : 1.2);
+        let distSq = dx * dx + dz * dz;
+        const minDist = (u1.isVehicle ? 2.0 : 1.25) + (u2.isVehicle ? 2.0 : 1.25);
         const minDistSq = minDist * minDist;
+        if (distSq >= minDistSq) continue;
 
-        if (distSq > 0 && distSq < minDistSq) {
-          const dist = Math.sqrt(distSq);
-          const overlap = (minDist - dist) * 0.5;
-          const nx = (dx / dist) * overlap * 12 * delta;
-          const nz = (dz / dist) * overlap * 12 * delta;
+        let nx;
+        let nz;
+        let dist;
+        if (distSq < 1e-6) {
+          const ang = (i * 12.9898 + j * 78.233) % (Math.PI * 2);
+          nx = Math.cos(ang);
+          nz = Math.sin(ang);
+          dist = 0.01;
+        } else {
+          dist = Math.sqrt(distSq);
+          nx = dx / dist;
+          nz = dz / dist;
+        }
 
-          u1.position.x += nx;
-          u1.position.z += nz;
-          u2.position.x -= nx;
-          u2.position.z -= nz;
-          u1.mesh.position.copy(u1.position);
-          u2.mesh.position.copy(u2.position);
+        const overlap = (minDist - dist) * 0.5;
+        const mag = overlap * push;
+        const lock1 = this.isDockLocked(u1);
+        const lock2 = this.isDockLocked(u2);
+        if (!lock1) {
+          u1.position.x += nx * mag;
+          u1.position.z += nz * mag;
+          if (u1.mesh) {
+            u1.mesh.position.x = u1.position.x;
+            u1.mesh.position.z = u1.position.z;
+            if (typeof u1.applyWalkBob === 'function') u1.applyWalkBob();
+          }
+        }
+        if (!lock2) {
+          u2.position.x -= nx * mag;
+          u2.position.z -= nz * mag;
+          if (u2.mesh) {
+            u2.mesh.position.x = u2.position.x;
+            u2.mesh.position.z = u2.position.z;
+            if (typeof u2.applyWalkBob === 'function') u2.applyWalkBob();
+          }
         }
       }
     }

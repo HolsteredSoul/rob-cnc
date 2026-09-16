@@ -16,6 +16,7 @@ function tick(ctx, seconds, step) {
     if (ctx.economy) ctx.economy.update(dt, ctx.entityManager, null);
     if (ctx.terrain && ctx.terrain.updateOreRegeneration) ctx.terrain.updateOreRegeneration(dt);
     if (ctx.missionManager) ctx.missionManager.update(dt);
+    if (ctx.skirmishAI) ctx.skirmishAI.update(dt, ctx);
     t += dt;
   }
 }
@@ -323,6 +324,97 @@ function run() {
     const ratio = u.hp / u.maxHp;
     assert(u.healthBar.userData.fill.scale.x < 0.99, 'fill scale should shrink with missing HP (scale=' + u.healthBar.userData.fill.scale.x + ' hpRatio=' + ratio.toFixed(2) + ')');
     results.push('PASS unit health bar selected/damaged visibility');
+  }
+
+  // --- Constructing buildings fade in at full scale (no pancake squash) ---
+  {
+    const ctx = makeCtx(g);
+    ctx.economy.reset(5000);
+    const site = ctx.entityManager.spawnBuilding('power_plant', 'player', 12, 12);
+    assert(site.isBuilding === true, 'new power plant should start under construction');
+    assert(Math.abs(site.mesh.scale.y - 1) < 0.02, 'constructing mesh should stay at full height, got scale.y=' + site.mesh.scale.y);
+    assert(!!site.scaffold, 'constructing building should keep a scaffold');
+    assert(!!site.healthBar, 'building must have a world-space health bar');
+    site.setSelected(true);
+    site.updateHealthBar(ctx);
+    assert(site.healthBar.visible === true, 'selected building should show HP bar');
+    site.setSelected(false);
+    site.hp = site.maxHp * 0.4;
+    site.updateHealthBar(ctx);
+    assert(site.healthBar.visible === true, 'damaged building should show HP bar');
+    results.push('PASS construction fade + building health bar');
+  }
+
+  // --- Group move uses formation slots, not one stacked dest ---
+  {
+    const ctx = makeCtx(g);
+    const squad = [
+      ctx.entityManager.spawnUnit('machine_gunner', 'player', 12, 12),
+      ctx.entityManager.spawnUnit('machine_gunner', 'player', 14, 12),
+      ctx.entityManager.spawnUnit('machine_gunner', 'player', 12, 14),
+      ctx.entityManager.spawnUnit('machine_gunner', 'player', 14, 14)
+    ];
+    ctx.entityManager.issueMoveOrders(squad, 40, 40, ctx.pathfinding);
+    const dests = squad.map((u) => {
+      const wp = u.waypoints[u.waypoints.length - 1];
+      return wp ? (wp.x + ',' + wp.z) : 'none';
+    });
+    const unique = new Set(dests);
+    assert(unique.size >= 3, 'group move should assign distinct formation slots (got ' + dests.join(' | ') + ')');
+    tick(ctx, 5.0, 0.05);
+    let minPair = Infinity;
+    for (let i = 0; i < squad.length; i++) {
+      for (let j = i + 1; j < squad.length; j++) {
+        const d = Math.hypot(squad[i].position.x - squad[j].position.x, squad[i].position.z - squad[j].position.z);
+        if (d < minPair) minPair = d;
+      }
+    }
+    assert(minPair > 1.3, 'stopped squad still piled up (min pair ' + minPair.toFixed(2) + ')');
+    results.push('PASS group move formation (min spacing ' + minPair.toFixed(2) + ')');
+  }
+
+  // --- Coincident units unstick instead of staying in one voxel ---
+  {
+    const ctx = makeCtx(g);
+    const a = ctx.entityManager.spawnUnit('machine_gunner', 'player', 22, 22);
+    const b = ctx.entityManager.spawnUnit('machine_gunner', 'player', 22, 22);
+    tick(ctx, 0.6, 0.05);
+    const d = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
+    assert(d > 1.0, 'coincident infantry did not separate (dist ' + d.toFixed(2) + ')');
+    results.push('PASS coincident units separate (' + d.toFixed(2) + ')');
+  }
+
+  // --- AI holds a garrison and only assaults with enough troops ---
+  {
+    const ctx = makeCtx(g);
+    ctx.entityManager.spawnBuilding('command_center', 'enemy', 70, 70, { complete: true });
+    ctx.entityManager.spawnBuilding('command_center', 'player', 8, 8, { complete: true });
+    ctx.skirmishAI.setDifficulty('easy');
+    const launchedEmpty = ctx.skirmishAI.launchAssault(ctx);
+    assert(launchedEmpty === false, 'easy AI assaulted with no army');
+    for (let i = 0; i < 6; i++) {
+      ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 140 + i, 140);
+    }
+    const launchedFull = ctx.skirmishAI.launchAssault(ctx);
+    assert(launchedFull === true, 'easy AI did not assault with 6 units and garrison 2');
+    const movers = ctx.entityManager.getEnemyUnits().filter((u) => u.order === 'attackMove' || u.waypoints.length > 0);
+    assert(movers.length >= 3, 'assault squad too small (movers=' + movers.length + ')');
+    const home = ctx.entityManager.getEnemyUnits().filter((u) => u.order === 'idle' && u.waypoints.length === 0);
+    assert(home.length >= 2, 'easy AI sent everyone; expected garrison (idle=' + home.length + ')');
+    results.push('PASS AI garrison + assault threshold');
+  }
+
+  // --- AI defends when player units enter the base radius ---
+  {
+    const ctx = makeCtx(g);
+    const hq = ctx.entityManager.spawnBuilding('command_center', 'enemy', 60, 60, { complete: true });
+    const guard = ctx.entityManager.spawnUnit('machine_gunner', 'enemy', hq.position.x + 3, hq.position.z + 3);
+    ctx.entityManager.spawnUnit('machine_gunner', 'player', hq.position.x + 8, hq.position.z + 4);
+    ctx.skirmishAI.setDifficulty('medium');
+    const defended = ctx.skirmishAI.defendBase(ctx, hq, ctx.entityManager.getEnemyUnits());
+    assert(defended === true, 'AI did not react to a player unit in its base');
+    assert(guard.order === 'attackMove' || guard.waypoints.length > 0, 'defender did not receive an order (order=' + guard.order + ')');
+    results.push('PASS AI defends base when threatened');
   }
 
   results.forEach((line) => console.log(line));

@@ -235,7 +235,7 @@ class Building {
 
     this.scaffold = null;
     if (this.isBuilding) {
-      this.mesh.scale.set(1, 0.08, 1);
+      this.applyConstructionFade(0.18);
       this.scaffold = this.createScaffold();
       scene.add(this.scaffold);
     }
@@ -251,9 +251,16 @@ class Building {
     this.selectionRing = this.createSelectionRing();
     this.mesh.add(this.selectionRing);
     this.selectionRing.visible = false;
+
+    this.healthBar = this.createHealthBar();
+    scene.add(this.healthBar);
+    this._wasDamaged = false;
   }
 
   createMesh(type, faction) {
+    if (typeof BuildingModels !== 'undefined' && BuildingModels.create) {
+      return BuildingModels.create(type, faction);
+    }
     switch (type) {
       case 'command_center': return BuildingModels.createCommandCenter(faction);
       case 'power_plant': return BuildingModels.createPowerPlant(faction);
@@ -373,17 +380,113 @@ class Building {
   }
 
   createSelectionRing() {
-    const sizeX = this.footprint.w * this.tileSize + 0.6;
-    const sizeZ = this.footprint.h * this.tileSize + 0.6;
-    const geo = new THREE.PlaneGeometry(sizeX, sizeZ);
-    geo.rotateX(-Math.PI / 2);
-    geo.translate(0, 0.08, 0);
-
-    const mat = new THREE.MeshBasicMaterial({
-      color: this.faction === 'player' ? 0x00ff66 : 0xff3333,
-      wireframe: true
+    const sizeX = this.footprint.w * this.tileSize + 0.55;
+    const sizeZ = this.footprint.h * this.tileSize + 0.55;
+    const plane = new THREE.PlaneGeometry(sizeX, sizeZ);
+    plane.rotateX(-Math.PI / 2);
+    const edges = new THREE.EdgesGeometry(plane);
+    const mat = new THREE.LineBasicMaterial({
+      color: this.faction === 'player' ? 0x33ff66 : 0xff3333
     });
-    return new THREE.Mesh(geo, mat);
+    const line = new THREE.LineSegments(edges, mat);
+    line.position.y = 0.1;
+    return line;
+  }
+
+  healthBarHeight() {
+    return 3.6 + Math.max(this.footprint.w, this.footprint.h) * 0.35;
+  }
+
+  createHealthBar() {
+    const width = Math.max(2.6, this.footprint.w * this.tileSize * 0.7);
+    const height = 0.2;
+    const group = new THREE.Group();
+    const bg = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ color: 0x111111, depthTest: false, depthWrite: false, side: THREE.DoubleSide })
+    );
+    const fill = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ color: 0x33ff33, depthTest: false, depthWrite: false, side: THREE.DoubleSide })
+    );
+    fill.position.z = 0.02;
+    bg.renderOrder = 20;
+    fill.renderOrder = 21;
+    group.add(bg, fill);
+    group.userData.fill = fill;
+    group.userData.width = width;
+    group.visible = false;
+    return group;
+  }
+
+  updateHealthBar(gameContext) {
+    const bar = this.healthBar;
+    if (!bar) return;
+    const ratio = this.maxHp > 0 ? Math.max(0, Math.min(1, this.hp / this.maxHp)) : 0;
+    const selected = !!(this.selectionRing && this.selectionRing.visible);
+    const show = this.isAlive && (selected || ratio < 0.999 || this.isBuilding);
+    bar.visible = show && (this.mesh ? this.mesh.visible !== false : true);
+    if (!bar.visible) return;
+
+    bar.position.set(this.position.x, this.position.y + this.healthBarHeight(), this.position.z);
+    const cam = gameContext && gameContext.renderer && gameContext.renderer.camera;
+    if (cam) bar.lookAt(cam.position);
+
+    const fill = bar.userData.fill;
+    const width = bar.userData.width;
+    fill.scale.x = Math.max(0.02, ratio);
+    fill.position.x = -((1 - fill.scale.x) * width) / 2;
+    if (ratio < 0.3) fill.material.color.setHex(0xff3333);
+    else if (ratio < 0.6) fill.material.color.setHex(0xffaa00);
+    else fill.material.color.setHex(0x33ff33);
+  }
+
+  applyConstructionFade(t) {
+    if (!this.mesh) return;
+    const amt = Math.max(0.12, Math.min(1, t));
+    this.mesh.traverse((obj) => {
+      if (!obj.material) return;
+      const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+      list.forEach((m) => {
+        if (m.userData._baseOpacity === undefined) {
+          m.userData._baseOpacity = m.opacity !== undefined ? m.opacity : 1;
+          m.userData._baseTransparent = !!m.transparent;
+        }
+        m.transparent = true;
+        m.opacity = Math.max(0.12, m.userData._baseOpacity * amt);
+        m.needsUpdate = true;
+      });
+    });
+  }
+
+  restoreConstructionMaterials() {
+    if (!this.mesh) return;
+    this.mesh.traverse((obj) => {
+      if (!obj.material) return;
+      const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+      list.forEach((m) => {
+        if (m.userData._baseOpacity === undefined) return;
+        m.opacity = m.userData._baseOpacity;
+        m.transparent = m.userData._baseTransparent;
+        m.needsUpdate = true;
+      });
+    });
+  }
+
+  applyDamageTint() {
+    if (!this.mesh) return;
+    const ratio = this.maxHp > 0 ? this.hp / this.maxHp : 1;
+    const damaged = this.isAlive && !this.isBuilding && ratio < 0.3;
+    if (damaged === this._wasDamaged) return;
+    this._wasDamaged = damaged;
+    const heat = damaged ? 0.4 : 0;
+    this.mesh.traverse((obj) => {
+      if (!obj.material) return;
+      const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+      list.forEach((m) => {
+        if (m.emissive) m.emissive.setRGB(heat, heat * 0.08, 0);
+      });
+    });
   }
 
   setSelected(selected) {
@@ -413,10 +516,14 @@ class Building {
   }
 
   getSpawnPosition() {
-    if (this.mesh.userData.spawnOffset) {
-      return this.position.clone().add(this.mesh.userData.spawnOffset);
-    }
-    return this.position.clone().add(new THREE.Vector3(0, 0, 4));
+    const base = this.mesh.userData.spawnOffset
+      ? this.position.clone().add(this.mesh.userData.spawnOffset)
+      : this.position.clone().add(new THREE.Vector3(0, 0, 4));
+    this._spawnIndex = (this._spawnIndex || 0) + 1;
+    const i = this._spawnIndex;
+    base.x += ((i % 3) - 1) * 1.35;
+    base.z += (Math.floor((i - 1) / 3) % 3) * 1.1;
+    return base;
   }
 
   // Enqueue unit training
@@ -439,6 +546,7 @@ class Building {
     this.powerConsumed = this.spec.powerConsumed;
     if (this.mesh) {
       this.mesh.scale.set(1, 1, 1);
+      this.restoreConstructionMaterials();
     }
     if (this.scaffold && this.scaffold.parent) {
       this.scaffold.parent.remove(this.scaffold);
@@ -464,16 +572,15 @@ class Building {
     if (this.isBuilding) {
       const buildTime = Math.max(0.25, this.spec.buildTime || 1);
       this.constructionProgress = Math.min(1, this.constructionProgress + delta / buildTime);
-      if (this.mesh) {
-        this.mesh.scale.set(1, 0.08 + 0.92 * this.constructionProgress, 1);
-      }
+      this.applyConstructionFade(0.18 + 0.82 * this.constructionProgress);
       if (this.scaffold) {
         const beacon = this.scaffold.userData.beacon;
-        if (beacon) beacon.material.opacity = 0.45 + 0.55 * Math.abs(Math.sin(this.constructionProgress * 12));
         if (beacon && beacon.material) {
           beacon.material.transparent = true;
+          beacon.material.opacity = 0.45 + 0.55 * Math.abs(Math.sin(this.constructionProgress * 12));
         }
       }
+      this.updateHealthBar(gameContext);
       if (this.constructionProgress >= 1) {
         this.finishConstruction(gameContext);
       }
@@ -510,6 +617,8 @@ class Building {
 
     // Unit Production Queue
     this.updateProduction(delta, gameContext, isPowered);
+    this.applyDamageTint();
+    this.updateHealthBar(gameContext);
   }
 
   updateTurretCombat(delta, gameContext) {
@@ -621,8 +730,12 @@ class Building {
   }
 
   sendUnitToRally(unit, gameContext) {
-    const rx = this.rallyPoint.x;
-    const rz = this.rallyPoint.z;
+    this._rallySlot = (this._rallySlot || 0) + 1;
+    const spacing = unit && unit.isVehicle ? 3.0 : 2.2;
+    const slot = this._rallySlot - 1;
+    const cols = 3;
+    const rx = this.rallyPoint.x + ((slot % cols) - 1) * spacing;
+    const rz = this.rallyPoint.z + Math.floor(slot / cols) * spacing;
     if (unit.type === 'harvester') {
       const ore = gameContext.terrain && gameContext.terrain.getClosestOreDeposit
         ? gameContext.terrain.getClosestOreDeposit(rx, rz)
@@ -659,6 +772,7 @@ class Building {
     if (this.selectionRing) {
       this.selectionRing.visible = false;
     }
+    if (this.healthBar) this.healthBar.visible = false;
     if (this.scaffold && this.scaffold.parent) this.scaffold.parent.remove(this.scaffold);
     if (this.rallyMarker && this.rallyMarker.parent) this.rallyMarker.parent.remove(this.rallyMarker);
   }

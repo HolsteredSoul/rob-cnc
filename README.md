@@ -6,6 +6,8 @@ A browser Command & Conquer–style RTS: harvest ore, keep the power grid up, bu
 
 Agents continuing this repo: read [`AGENTS.md`](AGENTS.md) first.
 
+Balance playtests (no tuning until the sheet has data): [`docs/balance-testing.md`](docs/balance-testing.md)
+
 ---
 
 ## Play a copy on your PC
