@@ -10,6 +10,9 @@ class SoundEffects {
     this.helicopterGain = null;
     this.helicopterSource = null;
     this.isHelicopterPlaying = false;
+    this._miningRefs = 0;
+    this._miningNodes = null;
+    this._lastMineBeep = 0;
     
     // Lazy init on first user gesture
     this.initAudioContext = this.initAudioContext.bind(this);
@@ -343,25 +346,68 @@ class SoundEffects {
     this.speak('Building captured');
   }
 
-  // Ore Harvester Drill / Mining
+  // Quiet looping drill rumble while any harvester is mining
+  startMiningLoop() {
+    this._miningRefs = (this._miningRefs || 0) + 1;
+    if (this._miningRefs > 1 && this._miningNodes) return;
+    if (!this.ensureContext()) {
+      this._miningRefs = Math.max(0, this._miningRefs - 1);
+      return;
+    }
+    if (this._miningNodes) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(46, now);
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(73, now);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(220, now);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.028, now + 0.12);
+    osc.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc2.start(now);
+    this._miningNodes = { osc, osc2, filter, gain };
+  }
+
+  stopMiningLoop() {
+    this._miningRefs = Math.max(0, (this._miningRefs || 0) - 1);
+    if (this._miningRefs > 0) return;
+    if (!this._miningNodes) return;
+    const { osc, osc2, gain } = this._miningNodes;
+    this._miningNodes = null;
+    try {
+      const now = this.ctx ? this.ctx.currentTime : 0;
+      if (gain && gain.gain) gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      if (osc) osc.stop(now + 0.1);
+      if (osc2) osc2.stop(now + 0.1);
+    } catch (err) { /* already stopped */ }
+  }
+
+  // Occasional quiet tick — not the old per-harvest-tick square beep
   playMiningSound() {
+    const t = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (this._lastMineBeep && t - this._lastMineBeep < 4000) return;
+    this._lastMineBeep = t;
     if (!this.ensureContext()) return;
     const now = this.ctx.currentTime;
-    
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(180, now);
-    osc.frequency.linearRampToValueAtTime(220, now + 0.1);
-    osc.frequency.linearRampToValueAtTime(160, now + 0.2);
-    
-    gain.gain.setValueAtTime(0.12, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-    
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(140, now);
+    gain.gain.setValueAtTime(0.03, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
     osc.connect(gain);
     gain.connect(this.ctx.destination);
     osc.start(now);
-    osc.stop(now + 0.2);
+    osc.stop(now + 0.12);
   }
 
   // Power Low Emergency Klaxon

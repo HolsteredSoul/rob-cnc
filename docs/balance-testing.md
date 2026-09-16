@@ -2,6 +2,8 @@
 
 No code in this pass. This is a playtest protocol so later tuning has numbers instead of vibes. Mechanics stay C&C-like: harvest → credits, power deficit slows production and offlines radar/turrets, HQ death wins M1/M2, M3 is destroy-all.
 
+Open playtest bugs and the ladder checklist live in [`docs/TODO.md`](TODO.md).
+
 Record each session in a copy of the sheet at the bottom. One mission + one difficulty per session.
 
 ## What we are measuring
@@ -140,6 +142,51 @@ If the numbers above feel wrong but the systems work, that is **balance** — pu
 - Recosting the whole tree in one pass
 
 ## Result sheet (copy per session)
+
+## Sim ladder pass (2026-09-16, local)
+
+Not a wall-clock commander session. Driven through shipped managers in `tests/run_sim_tests.js` (real harvest/combat/mission load). Use this as session 1 numbers; play T1 Easy yourself before changing HP/cost.
+
+```
+Date: 2026-09-16
+Build: local (unpushed playtest fixes: harvest return, radar pan, AI waves, yield, ore regen, harvester steer)
+Mission: 1
+Difficulty: easy
+Result: win (HQ destroyed after assault engaged)
+Duration: sim compressed (buildTimes + 22s harvest + train + assault), not 8–12 min wall clock
+
+Checkpoints (sim, $):
+  power: plant completed, $2700 (3000-300)
+  refinery: complete, $1500 (after plant+refinery); harvester granted
+  factory/barracks: barracks complete; 3 gunners trained; tutorial reached ASSAULT
+  first contact: assault group damaged enemy HQ (then finished)
+  first building lost: n/a in this run
+  end: win, credits $3300 (harvest paid past the $1200 refinery)
+
+Combat TTK samples:
+  4 gunners vs 1 gunner: 0.60s (hot vs “a couple of seconds”)
+  tank vs 4 gunners: 4.85s, tank 330 HP, all 4 gunners dead
+  rockets vs heli: 2.00s
+  harvester vs 2 gunners: died in 12.2s (did not escape)
+
+Yes/no notes:
+  eco: yes — harvest 1500 → 3300; refinery paid for itself in the sim window
+  power: not stressed in T1 (one plant, no overbuild)
+  formation: 12 infantry idle hold (max shift 0.00); harvester min gap 3.02 vs troop line
+  AI first attack: not wall-clock timed; remnant follow-up assault and produce-while-defend both pass in unit tests
+  AI defend: yes (unit test)
+  AI harass (hard): config flag on for T4/T6 load; not a played hunt
+
+Proposed number changes (if any):
+  none yet — 4v1 TTK is snappy; wait for a human T1 before touching gunner dmg/CD
+
+Bugs (repro):
+  none new in sim. Playtest bugs 1–6 + harvester/troop avoidance are in this build.
+```
+
+T2–T6: each cell loads (credits, HQ both sides, starter army, winRule, AI difficulty). T4 hard has `harassHarvesters`. T6 hard has air production + `destroy_all`.
+
+---
 
 ```
 Date:

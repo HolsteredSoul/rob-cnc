@@ -476,10 +476,12 @@ class HUD {
 
       const rank = primary.rank || 0;
       const rankLabel = rank >= 2 ? 'ELT' : (rank === 1 ? 'VET' : '');
+      const cargoLine = primary.type === 'harvester'
+        ? `<span>CARGO: ${Math.floor(primary.cargo || 0)}/${primary.maxCargo || 500}</span>`
+        : `<span>ATK: ${Math.round(primary.damage)}</span><span>RNG: ${primary.attackRange}</span>`;
       statsEl.innerHTML = `
         <span>HP: ${Math.floor(totalHp)}/${totalMax}</span>
-        <span>ATK: ${Math.round(primary.damage)}</span>
-        <span>RNG: ${primary.attackRange}</span>
+        ${cargoLine}
         <span>KILLS: ${primary.kills}${rankLabel ? ' · ' + rankLabel : ''}</span>
       `;
 

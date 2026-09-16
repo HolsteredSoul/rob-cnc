@@ -32,17 +32,25 @@ class Minimap {
   }
 
   handleMinimapClick(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const r = this.gameContext.renderer;
+    const pt = (r && r.getPointerClient) ? r.getPointerClient(e) : { x: e.clientX, y: e.clientY };
+    this.panFromClient(pt.x, pt.y);
+  }
 
+  panFromClient(clientX, clientY) {
+    if (!this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
     if (x < 0 || x > rect.width || y < 0 || y > rect.height) return;
 
     const terrain = this.gameContext.terrain;
+    if (!terrain) return;
     const worldX = (x / rect.width) * terrain.worldWidth;
     const worldZ = (y / rect.height) * terrain.worldHeight;
-
-    this.gameContext.renderer.panTo(worldX, worldZ);
+    if (this.gameContext.renderer && this.gameContext.renderer.panTo) {
+      this.gameContext.renderer.panTo(worldX, worldZ);
+    }
   }
 
   biomeColors() {
@@ -76,12 +84,12 @@ class Minimap {
       if (!b.isAlive) return;
       const isPlayer = b.faction === 'player';
       if (!isPlayer && fogOfWar && !fogOfWar.isExplored(b.position.x, b.position.z)) return;
-      if (!radarActive && !isPlayer) return;
+      if (!isPlayer && !radarActive) return;
       const isPlayerBlue = (this.gameContext.playerTeam || 'blue') === 'blue';
       const isBlue = isPlayer ? isPlayerBlue : !isPlayerBlue;
       this.ctx.fillStyle = isBlue ? '#3ec6ff' : '#e0524a';
-      const bw = Math.max(3, b.footprint.w * terrain.tileSize * scaleX);
-      const bh = Math.max(3, b.footprint.h * terrain.tileSize * scaleZ);
+      const bw = Math.max(4, b.footprint.w * terrain.tileSize * scaleX);
+      const bh = Math.max(4, b.footprint.h * terrain.tileSize * scaleZ);
       this.ctx.fillRect(
         (b.position.x - (b.footprint.w * terrain.tileSize) / 2) * scaleX,
         (b.position.z - (b.footprint.h * terrain.tileSize) / 2) * scaleZ,
@@ -90,33 +98,29 @@ class Minimap {
       );
     });
 
-    if (radarActive) {
-      entityManager.units.forEach((u) => {
-        if (!u.isAlive) return;
-        const isPlayer = u.faction === 'player';
-        if (!isPlayer && fogOfWar && !fogOfWar.isVisible(u.position.x, u.position.z)) return;
-        this.ctx.fillStyle = isPlayer ? '#9bffb5' : '#ff8a82';
-        const s = u.isVehicle ? 3 : 2;
-        this.ctx.fillRect(u.position.x * scaleX - s / 2, u.position.z * scaleZ - s / 2, s, s);
-      });
-    } else {
-      entityManager.units.forEach((u) => {
-        if (!u.isAlive || u.faction !== 'player') return;
-        this.ctx.fillStyle = '#7fe39a';
-        this.ctx.fillRect(u.position.x * scaleX - 1, u.position.z * scaleZ - 1, 2, 2);
-      });
-    }
+    entityManager.units.forEach((u) => {
+      if (!u.isAlive) return;
+      const isPlayer = u.faction === 'player';
+      if (!isPlayer) {
+        if (!radarActive) return;
+        if (fogOfWar && !fogOfWar.isVisible(u.position.x, u.position.z)) return;
+      }
+      this.ctx.fillStyle = isPlayer ? '#9bffb5' : '#ff8a82';
+      const s = u.isVehicle ? 4 : 3;
+      this.ctx.fillRect(u.position.x * scaleX - s / 2, u.position.z * scaleZ - s / 2, s, s);
+    });
 
     this.drawCameraBox(w, h, scaleX, scaleZ, renderer);
+    this.drawNorth(w);
     this.drawAlertPing(w, h, scaleX, scaleZ, entityManager);
 
     if (!radarActive) {
-      this.renderStaticNoise(w, h, 0.55);
+      this.renderStaticNoise(w, h, 0.18);
       if (offlineMsg) {
         offlineMsg.style.display = 'flex';
         offlineMsg.innerHTML = hasRadarBuilding
-          ? 'RADAR OFFLINE<br><span style="font-size:10px; color:#ff9999;">POWER DEFICIT</span>'
-          : 'RADAR LINK OFFLINE<br><span style="font-size:10px; color:#778899;">BUILD RADAR FACILITY</span>';
+          ? 'RADAR OFFLINE<br><span style="font-size:9px; color:#ff9999;">POWER DEFICIT</span>'
+          : 'TACTICAL MAP<br><span style="font-size:9px; color:#8899aa;">BUILD RADAR FOR ENEMY CONTACTS</span>';
       }
     } else if (offlineMsg) {
       offlineMsg.style.display = 'none';
@@ -138,42 +142,61 @@ class Minimap {
         }
         const blocked = terrain.grid[gz * terrain.width + gx] === 1;
         this.ctx.fillStyle = blocked ? colors.rock : colors.ground;
-        if (!visible) this.ctx.globalAlpha = radarActive ? 0.45 : 0.28;
-        else this.ctx.globalAlpha = radarActive ? 1 : 0.4;
+        if (!visible) this.ctx.globalAlpha = radarActive ? 0.45 : 0.42;
+        else this.ctx.globalAlpha = radarActive ? 1 : 0.78;
         this.ctx.fillRect(gx * terrain.tileSize * scaleX, gz * terrain.tileSize * scaleZ, step + 0.5, step + 0.5);
         this.ctx.globalAlpha = 1;
       }
     }
     terrain.oreDeposits.forEach((ore) => {
-      if (ore.remaining <= 0) return;
       if (fogOfWar && !fogOfWar.isExplored(ore.x, ore.z)) return;
+      const ratio = ore.maxOre > 0 ? ore.remaining / ore.maxOre : 0;
       this.ctx.fillStyle = colors.ore;
-      this.ctx.globalAlpha = radarActive ? 1 : 0.35;
+      this.ctx.globalAlpha = (radarActive ? 1 : 0.55) * (0.35 + Math.max(0, ratio) * 0.65);
       this.ctx.beginPath();
-      this.ctx.arc(ore.x * scaleX, ore.z * scaleZ, 3, 0, Math.PI * 2);
+      this.ctx.arc(ore.x * scaleX, ore.z * scaleZ, ratio > 0 ? 3 : 2, 0, Math.PI * 2);
       this.ctx.fill();
       this.ctx.globalAlpha = 1;
     });
   }
 
+  drawNorth(w) {
+    this.ctx.fillStyle = '#d7e6ee';
+    this.ctx.font = 'bold 11px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.fillText('N', w / 2, 12);
+    this.ctx.strokeStyle = '#d7e6ee';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.ctx.moveTo(w / 2, 14);
+    this.ctx.lineTo(w / 2, 22);
+    this.ctx.stroke();
+  }
+
   drawCameraBox(w, h, scaleX, scaleZ, renderer) {
     if (!renderer) return;
     const bounds = renderer.getGroundViewBounds ? renderer.getGroundViewBounds() : null;
-    this.ctx.strokeStyle = '#ffffff';
-    this.ctx.lineWidth = 1.2;
+    let x;
+    let y;
+    let bw;
+    let bh;
     if (bounds) {
-      this.ctx.strokeRect(
-        bounds.minX * scaleX,
-        bounds.minZ * scaleZ,
-        Math.max(8, (bounds.maxX - bounds.minX) * scaleX),
-        Math.max(8, (bounds.maxZ - bounds.minZ) * scaleZ)
-      );
+      x = bounds.minX * scaleX;
+      y = bounds.minZ * scaleZ;
+      bw = Math.max(10, (bounds.maxX - bounds.minX) * scaleX);
+      bh = Math.max(10, (bounds.maxZ - bounds.minZ) * scaleZ);
     } else {
       const camTarget = renderer.targetPos;
-      const viewW = 36 * (renderer.zoomLevel || 1) * scaleX;
-      const viewH = 28 * (renderer.zoomLevel || 1) * scaleZ;
-      this.ctx.strokeRect(camTarget.x * scaleX - viewW / 2, camTarget.z * scaleZ - viewH / 2, viewW, viewH);
+      bw = 36 * (renderer.zoomLevel || 1) * scaleX;
+      bh = 28 * (renderer.zoomLevel || 1) * scaleZ;
+      x = camTarget.x * scaleX - bw / 2;
+      y = camTarget.z * scaleZ - bh / 2;
     }
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    this.ctx.fillRect(x, y, bw, bh);
+    this.ctx.strokeStyle = '#f4f7fa';
+    this.ctx.lineWidth = 2;
+    this.ctx.strokeRect(x, y, bw, bh);
   }
 
   drawAlertPing(w, h, scaleX, scaleZ, entityManager) {

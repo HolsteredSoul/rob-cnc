@@ -226,6 +226,12 @@ class Unit {
     this.selected = false;
     this.healthBar = this.createHealthBar();
     scene.add(this.healthBar);
+
+    this.cargoBar = null;
+    if (this.type === 'harvester') {
+      this.cargoBar = this.createCargoBar();
+      scene.add(this.cargoBar);
+    }
   }
 
   get rank() {
@@ -292,7 +298,11 @@ class Unit {
     this.setGuardPost(this.position.x, this.position.z);
     if (this.type === 'harvester') {
       this.order = 'harvest';
-      if (this.harvesterState === 'MINING') return;
+      if (this.harvesterState === 'UNLOADING' || this.harvesterState === 'MINING') return;
+      if ((this.cargo || 0) >= this.maxCargo) {
+        this.harvesterState = 'RETURNING';
+        return;
+      }
       this.harvesterState = 'IDLE';
     } else {
       this.order = 'idle';
@@ -375,7 +385,8 @@ class Unit {
     bar.visible = show && (this.mesh ? this.mesh.visible !== false : true);
     if (!bar.visible) return;
 
-    bar.position.set(this.position.x, this.position.y + this.healthBarHeight(), this.position.z);
+    const yOff = (this.cargoBar && this.cargoBar.visible) ? 0.32 : 0;
+    bar.position.set(this.position.x, this.position.y + this.healthBarHeight() + yOff, this.position.z);
     const cam = gameContext && gameContext.renderer && gameContext.renderer.camera;
     if (cam) {
       bar.lookAt(cam.position);
@@ -388,6 +399,63 @@ class Unit {
     if (ratio < 0.3) fill.material.color.setHex(0xff3333);
     else if (ratio < 0.6) fill.material.color.setHex(0xffaa00);
     else fill.material.color.setHex(0x33ff33);
+  }
+
+  createCargoBar() {
+    const width = 2.5;
+    const height = 0.16;
+    const group = new THREE.Group();
+    const bg = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ color: 0x1a1408, depthTest: false, depthWrite: false, side: THREE.DoubleSide })
+    );
+    const fill = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ color: 0xffcc00, depthTest: false, depthWrite: false, side: THREE.DoubleSide })
+    );
+    fill.position.z = 0.02;
+    bg.renderOrder = 22;
+    fill.renderOrder = 23;
+    group.add(bg, fill);
+    group.userData.fill = fill;
+    group.userData.width = width;
+    group.visible = false;
+    return group;
+  }
+
+  cargoFillRatio() {
+    const max = this.maxCargo || 500;
+    let amount = this.cargo || 0;
+    if (this.harvesterState === 'MINING' && this.miningTimer > 0) {
+      amount += (this.miningTimer / 0.8) * 60;
+    }
+    return Math.max(0, Math.min(1, amount / max));
+  }
+
+  updateCargoBar(gameContext) {
+    const bar = this.cargoBar;
+    if (!bar) return;
+    if (this.type !== 'harvester' || !this.isAlive) {
+      bar.visible = false;
+      return;
+    }
+    const mining = this.harvesterState === 'MINING';
+    const hauling = (this.cargo || 0) > 0 || this.harvesterState === 'RETURNING' || this.harvesterState === 'UNLOADING';
+    const show = mining || hauling;
+    bar.visible = show && (this.mesh ? this.mesh.visible !== false : true);
+    if (!bar.visible) return;
+
+    bar.position.set(this.position.x, this.position.y + this.healthBarHeight(), this.position.z);
+    const cam = gameContext && gameContext.renderer && gameContext.renderer.camera;
+    if (cam) bar.lookAt(cam.position);
+
+    const ratio = this.cargoFillRatio();
+    const fill = bar.userData.fill;
+    const width = bar.userData.width;
+    fill.scale.x = Math.max(0.02, ratio);
+    fill.position.x = -((1 - fill.scale.x) * width) / 2;
+    if (this.harvesterState === 'RETURNING' || ratio >= 0.999) fill.material.color.setHex(0xffaa00);
+    else fill.material.color.setHex(0xffcc00);
   }
 
   arrivalRadius() {
@@ -418,7 +486,7 @@ class Unit {
     this.targetEntity = null;
     this.followTarget = null;
     this.order = 'move';
-    if (this.type === 'harvester' && this.harvesterState === 'MINING') {
+    if (this.type === 'harvester' && this.harvesterState !== 'UNLOADING') {
       this.harvesterState = 'IDLE';
     }
     this.setPathTo(destX, destZ, pathfinding);
@@ -458,7 +526,12 @@ class Unit {
 
   holdPosition() {
     if (this.type === 'harvester') {
-      this.becomeIdle();
+      this.order = 'hold';
+      this.waypoints = [];
+      this.followTarget = null;
+      this.targetEntity = null;
+      if (this.harvesterState !== 'UNLOADING') this.harvesterState = 'IDLE';
+      this.setGuardPost(this.position.x, this.position.z);
       return;
     }
     this.order = 'hold';
@@ -531,8 +604,9 @@ class Unit {
     // Harvester State Machine
     if (this.type === 'harvester') {
       this.updateHarvester(delta, gameContext);
-      this.updateMovement(delta);
+      this.updateMovement(delta, gameContext);
       this.updateHealthBar(gameContext);
+      this.updateCargoBar(gameContext);
       return;
     }
 
@@ -545,7 +619,7 @@ class Unit {
 
     // Combat & Movement logic
     this.updateOrders(delta, gameContext);
-    this.updateMovement(delta);
+    this.updateMovement(delta, gameContext);
     this.updateHealthBar(gameContext);
   }
 
@@ -591,7 +665,47 @@ class Unit {
     this.mesh.position.y = this.position.y + bob;
   }
 
-  updateMovement(delta) {
+  steerAroundUnits(dirX, dirZ, entityManager) {
+    if (!entityManager || this.isAir) return null;
+    const units = entityManager.units;
+    const look = this.type === 'harvester' ? 5.6 : 4.2;
+    const lookSq = look * look;
+    let ax = 0;
+    let az = 0;
+    let hits = 0;
+    let closestAhead = look;
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      if (u === this || !u.isAlive || u.isAir) continue;
+      const dx = u.position.x - this.position.x;
+      const dz = u.position.z - this.position.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq > lookSq || distSq < 1e-5) continue;
+      const dist = Math.sqrt(distSq);
+      const fwd = (dx * dirX + dz * dirZ) / dist;
+      if (fwd < 0.12) continue;
+      let side = dirX * dz - dirZ * dx;
+      if (Math.abs(side) < 0.15 * dist) {
+        if (this._avoidBias == null) this._avoidBias = (i + (this.mesh && this.mesh.id ? this.mesh.id : 0)) % 2 ? 1 : -1;
+        side = this._avoidBias;
+      }
+      const steerRight = side > 0 ? 1 : -1;
+      const weight = (1 - dist / look) * (0.65 + fwd * 0.85) * (u.isVehicle ? 1.2 : 1);
+      ax += dirZ * steerRight * weight;
+      az += -dirX * steerRight * weight;
+      hits++;
+      if (fwd > 0.5 && dist < closestAhead) closestAhead = dist;
+    }
+    if (!hits) return null;
+    const mag = Math.hypot(ax, az);
+    if (mag > 0.95) {
+      ax = (ax / mag) * 0.95;
+      az = (az / mag) * 0.95;
+    }
+    return { x: ax, z: az, slow: closestAhead < 2.5 ? 0.48 : (closestAhead < 3.6 ? 0.72 : 1) };
+  }
+
+  updateMovement(delta, gameContext) {
     if (this.waypoints.length === 0) {
       this.applyWalkBob();
       return;
@@ -617,13 +731,25 @@ class Unit {
     }
 
     dir.normalize();
+    let stepScale = 1;
+    if (this.type === 'harvester' && gameContext && gameContext.entityManager) {
+      const avoid = this.steerAroundUnits(dir.x, dir.z, gameContext.entityManager);
+      if (avoid) {
+        dir.x += avoid.x;
+        dir.z += avoid.z;
+        const len = Math.hypot(dir.x, dir.z) || 1;
+        dir.x /= len;
+        dir.z /= len;
+        stepScale = avoid.slow;
+      }
+    }
 
     // Smooth rotation towards travel direction
     const targetAngle = Math.atan2(dir.x, dir.z);
     this.mesh.rotation.y = THREE.MathUtils.lerp(this.mesh.rotation.y, targetAngle, 12 * delta);
 
     // Move forward
-    const moveStep = Math.min(dist, this.speed * delta);
+    const moveStep = Math.min(dist, this.speed * delta * stepScale);
     this.position.x += dir.x * moveStep;
     this.position.z += dir.z * moveStep;
     this.mesh.position.x = this.position.x;
@@ -903,39 +1029,45 @@ class Unit {
   // Automated Harvester resource gathering loop
   updateHarvester(delta, gameContext) {
     const { terrain, entityManager, economy, soundFX } = gameContext;
+    const playerHold = this.order === 'move' || this.order === 'hold';
 
     switch (this.harvesterState) {
       case 'IDLE':
-        // Auto-find closest ore deposit
-        if (this.cargo < this.maxCargo) {
+        if (playerHold) break;
+        if (this.cargo >= this.maxCargo) {
+          this.returnToRefinery(gameContext);
+        } else {
           const ore = terrain.getClosestOreDeposit(this.position.x, this.position.z);
           if (ore) {
             this.targetOreNode = ore;
             this.harvesterState = 'SEEKING_ORE';
-            this.moveTo(ore.x, ore.z, gameContext.pathfinding);
+            this.order = 'harvest';
+            this.setPathTo(ore.x, ore.z, gameContext.pathfinding);
           }
-        } else {
-          this.returnToRefinery(gameContext);
         }
         break;
 
       case 'SEEKING_ORE':
+        if (playerHold) break;
         if (!this.targetOreNode || this.targetOreNode.remaining <= 0) {
           this.harvesterState = 'IDLE';
-          return;
+          break;
         }
         const distToOre = Math.hypot(this.position.x - this.targetOreNode.x, this.position.z - this.targetOreNode.z);
         if (distToOre <= this.targetOreNode.radius + 1.5) {
           this.waypoints = [];
           this.harvesterState = 'MINING';
           this.miningTimer = 0;
+        } else if (this.waypoints.length === 0 && gameContext.pathfinding) {
+          this.order = 'harvest';
+          this.setPathTo(this.targetOreNode.x, this.targetOreNode.z, gameContext.pathfinding);
         }
         break;
 
       case 'MINING':
         if (!this.targetOreNode || this.targetOreNode.remaining <= 0) {
           this.harvesterState = 'IDLE';
-          return;
+          break;
         }
 
         this.miningTimer += delta;
@@ -944,14 +1076,9 @@ class Unit {
           const mined = terrain.harvestFromNode(this.targetOreNode, 60);
           this.cargo = Math.min(this.maxCargo, this.cargo + mined);
 
-          // Update glowing cargo visual in dump hopper
           if (this.mesh.userData.oreCargo) {
             const fillRatio = this.cargo / this.maxCargo;
             this.mesh.userData.oreCargo.scale.set(0.9, 0.1 + fillRatio * 0.9, 0.9);
-          }
-
-          if (soundFX && this.isAudibleToPlayer(gameContext)) {
-            soundFX.playMiningSound();
           }
 
           if (this.cargo >= this.maxCargo) {
@@ -961,21 +1088,23 @@ class Unit {
         break;
 
       case 'RETURNING': {
+        if (this.order === 'move') break;
         const refinery = entityManager.findClosestRefinery(this.position, this.faction);
         if (!refinery || !refinery.isAlive) {
           this.harvesterState = 'IDLE';
-          return;
+          break;
         }
 
         const dockPos = refinery.getDockPosition();
         const distToDock = this.position.distanceTo(dockPos);
-
-        if (distToDock <= 3.6) {
+        const distToBldg = this.position.distanceTo(refinery.position);
+        if (distToDock <= 5.4 || distToBldg <= 6.8) {
           this.waypoints = [];
           this.harvesterState = 'UNLOADING';
           this.miningTimer = 0;
         } else if (this.waypoints.length === 0) {
-          this.moveTo(dockPos.x, dockPos.z, gameContext.pathfinding);
+          this.order = 'harvest';
+          this.setPathTo(dockPos.x, dockPos.z, gameContext.pathfinding);
         }
         break;
       }
@@ -983,7 +1112,6 @@ class Unit {
       case 'UNLOADING':
         this.miningTimer += delta;
         if (this.miningTimer >= 1.2) {
-          // Deliver credits
           if (economy) {
             economy.addCredits(this.faction, this.cargo);
           }
@@ -992,17 +1120,31 @@ class Unit {
             this.mesh.userData.oreCargo.scale.set(0.9, 0.05, 0.9);
           }
           this.harvesterState = 'IDLE';
+          this.order = 'harvest';
         }
         break;
+    }
+
+    const mining = this.harvesterState === 'MINING';
+    if (mining !== !!this._miningAudio) {
+      this._miningAudio = mining;
+      if (soundFX) {
+        if (mining && typeof soundFX.startMiningLoop === 'function') soundFX.startMiningLoop();
+        else if (!mining && typeof soundFX.stopMiningLoop === 'function') soundFX.stopMiningLoop();
+      }
     }
   }
 
   returnToRefinery(gameContext) {
+    if (this.type !== 'harvester') return;
     const refinery = gameContext.entityManager.findClosestRefinery(this.position, this.faction);
     if (refinery && refinery.isAlive) {
       this.harvesterState = 'RETURNING';
+      this.order = 'harvest';
+      this.targetEntity = null;
+      this.followTarget = null;
       const dock = refinery.getDockPosition();
-      this.moveTo(dock.x, dock.z, gameContext.pathfinding);
+      this.setPathTo(dock.x, dock.z, gameContext.pathfinding);
     } else {
       this.harvesterState = 'IDLE';
     }
@@ -1029,6 +1171,11 @@ class Unit {
 
   die(attacker) {
     this.isAlive = false;
+    if (this._miningAudio) {
+      this._miningAudio = false;
+      const sfx = typeof window !== 'undefined' && window.gameContext && window.gameContext.soundFX;
+      if (sfx && typeof sfx.stopMiningLoop === 'function') sfx.stopMiningLoop();
+    }
     if (attacker && attacker.kills !== undefined) {
       attacker.kills++;
       if (typeof attacker.applyVeterancy === 'function') attacker.applyVeterancy();
@@ -1038,6 +1185,9 @@ class Unit {
     }
     if (this.healthBar) {
       this.healthBar.visible = false;
+    }
+    if (this.cargoBar) {
+      this.cargoBar.visible = false;
     }
   }
 

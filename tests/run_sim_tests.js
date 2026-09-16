@@ -39,7 +39,12 @@ function makeCtx(g) {
     pathfinding,
     skirmishAI,
     soundFX: null,
-    fogOfWar: null,
+    fogOfWar: {
+      clearAll() {},
+      revealPermanent() {},
+      isVisible() { return true; },
+      isExplored() { return true; }
+    },
     renderer: { panTo() {}, scene }
   };
   ctx.missionManager = new g.MissionManager(ctx);
@@ -326,6 +331,24 @@ function run() {
     results.push('PASS unit health bar selected/damaged visibility');
   }
 
+  // --- Harvester cargo bar shows mining fill and hides when empty ---
+  {
+    const ctx = makeCtx(g);
+    const h = ctx.entityManager.spawnUnit('harvester', 'player', 18, 18);
+    assert(!!h.cargoBar, 'harvester must have a cargo bar');
+    h.updateCargoBar(ctx);
+    assert(h.cargoBar.visible === false, 'empty idle harvester should hide the cargo bar');
+    h.harvesterState = 'MINING';
+    h.cargo = 200;
+    h.miningTimer = 0.4;
+    h.updateCargoBar(ctx);
+    assert(h.cargoBar.visible === true, 'mining harvester should show the cargo bar');
+    const ratio = h.cargoFillRatio();
+    assert(ratio > 0.4 && ratio < 0.55, 'cargo fill should include current mining tick (ratio=' + ratio.toFixed(2) + ')');
+    assert(h.cargoBar.userData.fill.scale.x > 0.4, 'cargo bar fill should grow with cargo');
+    results.push('PASS harvester cargo bar mining fill');
+  }
+
   // --- Constructing buildings fade in at full scale (no pancake squash) ---
   {
     const ctx = makeCtx(g);
@@ -402,6 +425,357 @@ function run() {
     const home = ctx.entityManager.getEnemyUnits().filter((u) => u.order === 'idle' && u.waypoints.length === 0);
     assert(home.length >= 2, 'easy AI sent everyone; expected garrison (idle=' + home.length + ')');
     results.push('PASS AI garrison + assault threshold');
+  }
+
+  // --- Harvester player-move does not snap back to ore mid-order ---
+  {
+    const ctx = makeCtx(g);
+    ctx.economy.reset(1000);
+    ctx.terrain.setupLevelEnvironment([{ x: 40, z: 20, radius: 5, richness: 5000 }], []);
+    ctx.entityManager.spawnBuilding('ore_refinery', 'player', 8, 8, { complete: true });
+    const harvester = ctx.entityManager.getPlayerUnits().find((u) => u.type === 'harvester');
+    assert(!!harvester, 'expected free harvester');
+    harvester.cargo = 80;
+    harvester.harvesterState = 'IDLE';
+    harvester.moveTo(harvester.position.x + 16, harvester.position.z + 4, ctx.pathfinding);
+    assert(harvester.order === 'move', 'player move should set order=move');
+    tick(ctx, 0.35, 0.05);
+    assert(harvester.order === 'move', 'harvester snapped back during player move (order=' + harvester.order + ' state=' + harvester.harvesterState + ')');
+    results.push('PASS harvester player-move holds until arrival');
+  }
+
+  // --- Full cargo docks and unloads instead of idle-looping at the pad ---
+  {
+    const ctx = makeCtx(g);
+    ctx.economy.reset(1000);
+    ctx.entityManager.spawnBuilding('ore_refinery', 'player', 8, 8, { complete: true });
+    const harvester = ctx.entityManager.getPlayerUnits().find((u) => u.type === 'harvester');
+    const ref = ctx.entityManager.getPlayerBuildings().find((b) => b.type === 'ore_refinery');
+    const dock = ref.getDockPosition();
+    harvester.position.set(dock.x + 2.2, 0, dock.z);
+    harvester.mesh.position.copy(harvester.position);
+    harvester.cargo = harvester.maxCargo;
+    harvester.returnToRefinery(ctx);
+    assert(harvester.harvesterState === 'RETURNING', 'returnToRefinery should set RETURNING not move-idle');
+    assert(harvester.order === 'harvest', 'return should keep harvest order, got ' + harvester.order);
+    tick(ctx, 3.2, 0.05);
+    const credits = ctx.economy.credits.player;
+    assert(
+      harvester.harvesterState === 'UNLOADING' || harvester.cargo === 0 || credits > 1000,
+      'full harvester did not dock/unload (state=' + harvester.harvesterState + ' cargo=' + harvester.cargo + ' credits=' + credits + ')'
+    );
+    results.push('PASS full harvester docks and unloads');
+  }
+
+  // --- Easy AI sends a smaller follow-up wave when below full squad size ---
+  {
+    const ctx = makeCtx(g);
+    ctx.entityManager.spawnBuilding('command_center', 'enemy', 70, 70, { complete: true });
+    ctx.entityManager.spawnBuilding('command_center', 'player', 8, 8, { complete: true });
+    ctx.skirmishAI.setDifficulty('easy');
+    for (let i = 0; i < 3; i++) {
+      ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 140 + i, 140);
+    }
+    const launchedSmall = ctx.skirmishAI.launchAssault(ctx);
+    assert(launchedSmall === true, 'easy AI should send a remnant follow-up wave');
+    const movers = ctx.entityManager.getEnemyUnits().filter((u) => u.order === 'attackMove' || u.waypoints.length > 0);
+    assert(movers.length >= 1 && movers.length <= 3, 'follow-up wave size wrong (movers=' + movers.length + ')');
+    results.push('PASS AI follow-up assault with remnant army');
+  }
+
+  // --- AI keeps producing while defending the base ---
+  {
+    const ctx = makeCtx(g);
+    ctx.economy.reset(400);
+    const hq = ctx.entityManager.spawnBuilding('command_center', 'enemy', 60, 60, { complete: true });
+    ctx.entityManager.spawnBuilding('power_plant', 'enemy', 54, 60, { complete: true });
+    const barracks = ctx.entityManager.spawnBuilding('barracks', 'enemy', 58, 54, { complete: true });
+    ctx.entityManager.spawnUnit('machine_gunner', 'enemy', hq.position.x + 2, hq.position.z + 2);
+    ctx.entityManager.spawnUnit('machine_gunner', 'player', hq.position.x + 8, hq.position.z + 4);
+    ctx.skirmishAI.setDifficulty('easy');
+    ctx.economy.update(0, ctx.entityManager, null);
+    ctx.skirmishAI.makeStrategicDecisions(ctx);
+    assert(
+      barracks.productionQueue.length > 0 || barracks.currentProduction,
+      'AI skipped production while defending (queue=' + barracks.productionQueue.length + ')'
+    );
+    results.push('PASS AI produces while defending');
+  }
+
+  // --- Idle formation holds without vibrating ---
+  {
+    const ctx = makeCtx(g);
+    const squad = [];
+    for (let i = 0; i < 12; i++) {
+      squad.push(ctx.entityManager.spawnUnit('machine_gunner', 'player', 20 + (i % 4) * 2.6, 20 + Math.floor(i / 4) * 2.6));
+    }
+    ctx.entityManager.issueMoveOrders(squad, 30, 30, ctx.pathfinding);
+    squad.forEach((u) => {
+      const wp = u.waypoints[u.waypoints.length - 1];
+      u.position.x = wp.x;
+      u.position.z = wp.z;
+      u.mesh.position.x = wp.x;
+      u.mesh.position.z = wp.z;
+      u.becomeIdle();
+      u.destX = wp.x;
+      u.destZ = wp.z;
+    });
+    const before = squad.map((u) => ({ x: u.position.x, z: u.position.z }));
+    tick(ctx, 1.0, 0.05);
+    let maxShift = 0;
+    squad.forEach((u, i) => {
+      const d = Math.hypot(u.position.x - before[i].x, u.position.z - before[i].z);
+      if (d > maxShift) maxShift = d;
+    });
+    assert(maxShift < 0.45, 'idle formation jittered (max shift ' + maxShift.toFixed(2) + ')');
+    results.push('PASS idle formation holds (max shift ' + maxShift.toFixed(2) + ')');
+  }
+
+  // --- Harvester steers around a troop line instead of driving through it ---
+  {
+    const ctx = makeCtx(g);
+    const h = ctx.entityManager.spawnUnit('harvester', 'player', 16, 24);
+    const troops = [];
+    for (let i = 0; i < 6; i++) {
+      const u = ctx.entityManager.spawnUnit('machine_gunner', 'player', 28, 17.5 + i * 2.6);
+      u.waypoints = [];
+      u.order = 'idle';
+      u.setGuardPost(u.position.x, u.position.z);
+      u.destX = u.position.x;
+      u.destZ = u.position.z;
+      troops.push(u);
+    }
+    h.moveTo(44, 24, ctx.pathfinding);
+    let minGap = Infinity;
+    let sawCrossing = false;
+    for (let t = 0; t < 8; t += 0.05) {
+      tick(ctx, 0.05, 0.05);
+      if (h.position.x > 24 && h.position.x < 35) {
+        sawCrossing = true;
+        for (let i = 0; i < troops.length; i++) {
+          const d = Math.hypot(h.position.x - troops[i].position.x, h.position.z - troops[i].position.z);
+          if (d < minGap) minGap = d;
+        }
+      }
+    }
+    assert(h.position.x > 36, 'harvester did not get past the troop line (x=' + h.position.x.toFixed(2) + ' z=' + h.position.z.toFixed(2) + ')');
+    assert(sawCrossing, 'harvester never entered the troop corridor');
+    assert(minGap > 2.15, 'harvester drove through troops (min gap ' + minGap.toFixed(2) + ')');
+    results.push('PASS harvester avoids troops (min gap ' + minGap.toFixed(2) + ')');
+  }
+
+  // --- Depleted ore stays visible and becomes harvestable again ---
+  {
+    const ctx = makeCtx(g);
+    ctx.terrain.setupLevelEnvironment([{ x: 30, z: 30, radius: 5, richness: 2000 }], []);
+    const ore = ctx.terrain.oreDeposits[0];
+    ore.remaining = 0;
+    ctx.terrain.updateOreRegeneration(0.016);
+    assert(ore.mesh.visible === true, 'depleted ore field should stay visible while regenerating');
+    const before = ore.remaining;
+    tick(ctx, 4.0, 0.05);
+    assert(ore.remaining > before + 50, 'ore did not regenerate on a mission timescale (remaining=' + ore.remaining + ')');
+    const closest = ctx.terrain.getClosestOreDeposit(30, 30);
+    assert(!!closest, 'recovering field should become harvestable');
+    results.push('PASS ore regen visible + harvestable ' + ore.remaining.toFixed(0));
+  }
+
+  function measureTtk(g, setup) {
+    const ctx = makeCtx(g);
+    const built = setup(ctx, g);
+    let t = 0;
+    while (t < 45 && built.target.isAlive && built.attackers.some((a) => a.isAlive)) {
+      tick(ctx, 0.05, 0.05);
+      t += 0.05;
+    }
+    const winnerDead = built.target.isAlive
+      ? 'attackers'
+      : 'target';
+    return { seconds: t, winnerDead, targetHp: built.target.hp, targetAlive: built.target.isAlive };
+  }
+
+  // --- Balance ladder combat TTK samples ---
+  {
+    const fourVOne = measureTtk(g, (ctx) => {
+      const attackers = [
+        ctx.entityManager.spawnUnit('machine_gunner', 'player', 20, 20),
+        ctx.entityManager.spawnUnit('machine_gunner', 'player', 20.8, 20),
+        ctx.entityManager.spawnUnit('machine_gunner', 'player', 20, 20.8),
+        ctx.entityManager.spawnUnit('machine_gunner', 'player', 21, 21)
+      ];
+      const target = ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 24, 21);
+      attackers.forEach((a) => {
+        a.stance = 'aggressive';
+        a.attackTarget(target, ctx.pathfinding);
+      });
+      return { attackers, target };
+    });
+    assert(fourVOne.seconds < 6, '4 gunners vs 1 took too long (' + fourVOne.seconds.toFixed(2) + 's)');
+    assert(fourVOne.targetAlive === false, '4 gunners failed to kill 1 gunner');
+    results.push('PASS TTK 4 gunners vs 1 = ' + fourVOne.seconds.toFixed(2) + 's');
+
+    {
+      const ctx = makeCtx(g);
+      const tank = ctx.entityManager.spawnUnit('battle_tank', 'player', 30, 30);
+      const gunners = [
+        ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 34, 30),
+        ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 34, 31.2),
+        ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 34, 28.8),
+        ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 35, 30)
+      ];
+      tank.stance = 'aggressive';
+      gunners.forEach((u) => {
+        u.stance = 'aggressive';
+        u.attackTarget(tank, ctx.pathfinding);
+      });
+      tank.attackTarget(gunners[0], ctx.pathfinding);
+      let t = 0;
+      while (t < 45 && tank.isAlive && gunners.some((u) => u.isAlive)) {
+        tick(ctx, 0.05, 0.05);
+        t += 0.05;
+      }
+      const gunnersLeft = gunners.filter((u) => u.isAlive).length;
+      results.push('PASS TTK tank vs 4 gunners = ' + t.toFixed(2) + 's tankHp=' + Math.floor(tank.hp) + ' gunnersLeft=' + gunnersLeft);
+    }
+
+    const rocketsVHeli = measureTtk(g, (ctx) => {
+      const rockets = [
+        ctx.entityManager.spawnUnit('rocket_launcher', 'player', 40, 40),
+        ctx.entityManager.spawnUnit('rocket_launcher', 'player', 41, 40)
+      ];
+      const heli = ctx.entityManager.spawnUnit('helicopter', 'enemy', 46, 40);
+      rockets.forEach((a) => {
+        a.stance = 'aggressive';
+        a.attackTarget(heli, ctx.pathfinding);
+      });
+      return { attackers: rockets, target: heli };
+    });
+    assert(rocketsVHeli.targetAlive === false, '2 rockets did not kill heli');
+    results.push('PASS TTK 2 rockets vs heli = ' + rocketsVHeli.seconds.toFixed(2) + 's');
+
+    const harvVTwo = measureTtk(g, (ctx) => {
+      const h = ctx.entityManager.spawnUnit('harvester', 'player', 50, 50);
+      const gunners = [
+        ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 53, 50),
+        ctx.entityManager.spawnUnit('machine_gunner', 'enemy', 53, 51)
+      ];
+      gunners.forEach((u) => {
+        u.stance = 'aggressive';
+        u.attackTarget(h, ctx.pathfinding);
+      });
+      h.moveTo(70, 50, ctx.pathfinding);
+      return { attackers: gunners, target: h };
+    });
+    results.push('PASS TTK harvester vs 2 gunners = ' + harvVTwo.seconds.toFixed(2) + 's (' + (harvVTwo.targetAlive ? 'escaped' : 'died') + ')');
+  }
+
+  // --- Ladder cells T1–T6: each mission+difficulty loads ---
+  {
+    const cells = [
+      { idx: 0, diff: 'easy', credits: 3000, win: 'destroy_hq' },
+      { idx: 0, diff: 'medium', credits: 3000, win: 'destroy_hq' },
+      { idx: 1, diff: 'medium', credits: 4500, win: 'destroy_hq' },
+      { idx: 1, diff: 'hard', credits: 4500, win: 'destroy_hq' },
+      { idx: 2, diff: 'medium', credits: 6000, win: 'destroy_all' },
+      { idx: 2, diff: 'hard', credits: 6000, win: 'destroy_all' }
+    ];
+    cells.forEach((cell, n) => {
+      const ctx = makeCtx(g);
+      ctx.missionManager.loadMission(cell.idx, cell.diff);
+      const mission = g.MISSIONS[cell.idx];
+      assert(ctx.economy.credits.player === cell.credits, 'T' + (n + 1) + ' credits ' + ctx.economy.credits.player + ' != ' + cell.credits);
+      assert(!!ctx.entityManager.getPlayerBuildings().find((b) => b.type === 'command_center'), 'T' + (n + 1) + ' missing player HQ');
+      assert(!!ctx.entityManager.getEnemyBuildings().find((b) => b.type === 'command_center'), 'T' + (n + 1) + ' missing enemy HQ');
+      assert(ctx.entityManager.getPlayerUnits().length >= 4, 'T' + (n + 1) + ' missing starters');
+      assert(mission.winRule === cell.win, 'T' + (n + 1) + ' winRule ' + mission.winRule);
+      assert(ctx.skirmishAI.difficulty === cell.diff, 'T' + (n + 1) + ' AI diff ' + ctx.skirmishAI.difficulty);
+      results.push('PASS ladder T' + (n + 1) + ' load M' + mission.id + ' ' + cell.diff + ' $' + cell.credits);
+    });
+    const hard = makeCtx(g);
+    hard.missionManager.loadMission(1, 'hard');
+    assert(hard.skirmishAI.difficultyConfig.harassHarvesters === true, 'T4 hard should hunt harvesters');
+    const m3 = makeCtx(g);
+    m3.missionManager.loadMission(2, 'hard');
+    assert(m3.skirmishAI.difficultyConfig.canBuildAir === true, 'T6 hard should allow air');
+    results.push('PASS ladder T4 harass + T6 air flags');
+  }
+
+  // --- T1 Easy compressed playthrough: tutorial eco then HQ kill ---
+  {
+    const ctx = makeCtx(g);
+    ctx.missionManager.loadMission(0, 'easy');
+    const log = {};
+    assert(ctx.missionManager.getCurrentObjectiveText().indexOf('SELECT & MOVE') !== -1, 'T1 tutorial should start on move');
+    ctx.missionManager.playerHasMovedUnits = true;
+    tick(ctx, 0.2, 0.05);
+    assert(ctx.missionManager.getCurrentObjectiveText().indexOf('POWER') !== -1, 'T1 did not advance to power plant');
+
+    const terrain = ctx.terrain;
+    const pStart = terrain.worldToGrid(45, 45);
+    assert(ctx.economy.spendCredits('player', g.BUILDING_SPECS.power_plant.cost), 'T1 could not afford power plant');
+    const plant = ctx.entityManager.spawnBuilding('power_plant', 'player', pStart.gx - 5, pStart.gz, {});
+    tick(ctx, plant.spec.buildTime + 0.4);
+    log.power = { t: plant.spec.buildTime, credits: ctx.economy.credits.player };
+    assert(plant.isBuilding === false, 'T1 power plant did not complete');
+    tick(ctx, 0.2, 0.05);
+    assert(ctx.missionManager.getCurrentObjectiveText().indexOf('ECONOMY') !== -1, 'T1 did not advance to refinery');
+
+    const ore = ctx.terrain.oreDeposits[0];
+    const og = terrain.worldToGrid(ore.x, ore.z);
+    assert(ctx.economy.spendCredits('player', g.BUILDING_SPECS.ore_refinery.cost), 'T1 could not afford refinery');
+    const ref = ctx.entityManager.spawnBuilding('ore_refinery', 'player', og.gx - 4, og.gz, {});
+    tick(ctx, ref.spec.buildTime + 0.4);
+    const harvester = ctx.entityManager.getPlayerUnits().find((u) => u.type === 'harvester');
+    assert(!!harvester, 'T1 refinery did not grant harvester');
+    log.refinery = { t: ref.spec.buildTime, credits: ctx.economy.credits.player };
+    const creditsAfterRef = ctx.economy.credits.player;
+    tick(ctx, 22, 0.05);
+    assert(ctx.economy.credits.player > creditsAfterRef, 'T1 harvest did not pay credits (still $' + ctx.economy.credits.player + ')');
+    tick(ctx, 0.2, 0.05);
+    assert(ctx.missionManager.getCurrentObjectiveText().indexOf('Barracks') !== -1, 'T1 did not advance to barracks');
+
+    assert(ctx.economy.spendCredits('player', g.BUILDING_SPECS.barracks.cost), 'T1 could not afford barracks');
+    const barracks = ctx.entityManager.spawnBuilding('barracks', 'player', pStart.gx + 5, pStart.gz, {});
+    tick(ctx, barracks.spec.buildTime + 0.4);
+    log.barracks = { t: barracks.spec.buildTime, credits: ctx.economy.credits.player };
+    const beforeTrain = ctx.entityManager.getPlayerUnits().length;
+    for (let i = 0; i < 3; i++) {
+      assert(ctx.economy.spendCredits('player', g.UNIT_SPECS.machine_gunner.cost), 'T1 could not afford gunner ' + i);
+      barracks.queueUnit('machine_gunner');
+    }
+    tick(ctx, 12, 0.05);
+    assert(ctx.entityManager.getPlayerUnits().length >= beforeTrain + 3, 'T1 did not train 3 gunners');
+    tick(ctx, 0.2, 0.05);
+    assert(ctx.missionManager.getCurrentObjectiveText().indexOf('ASSAULT') !== -1, 'T1 did not reach assault step');
+
+    const enemyHq = ctx.entityManager.getEnemyBuildings().find((b) => b.type === 'command_center');
+    for (let i = 0; i < 8; i++) {
+      const u = ctx.entityManager.spawnUnit(
+        'machine_gunner',
+        'player',
+        enemyHq.position.x - 11,
+        enemyHq.position.z - 6 + i * 1.6
+      );
+      u.stance = 'holdground';
+      u.attackTarget(enemyHq, ctx.pathfinding);
+    }
+    const army = ctx.entityManager.getPlayerUnits().filter((u) => u.isAlive && u.type !== 'harvester');
+    army.forEach((u) => {
+      u.stance = 'holdground';
+      u.attackTarget(enemyHq, ctx.pathfinding);
+    });
+    let assaultT = 0;
+    while (assaultT < 12 && enemyHq.isAlive && enemyHq.hp > 2000) {
+      tick(ctx, 0.25, 0.05);
+      assaultT += 0.25;
+    }
+    assert(enemyHq.hp < 2500, 'T1 assault never damaged the enemy HQ');
+    const hqHpHit = Math.floor(enemyHq.hp);
+    if (enemyHq.isAlive) enemyHq.takeDamage(99999);
+    tick(ctx, 0.3, 0.05);
+    assert(ctx.missionManager.isMissionCompleted === true, 'T1 Easy should win when the enemy HQ dies');
+    log.end = { t: assaultT, credits: ctx.economy.credits.player, hqHpHit };
+    results.push('PASS T1 Easy playthrough (harvest $' + creditsAfterRef + ' → $' + ctx.economy.credits.player + ', HQ engaged then destroyed)');
   }
 
   // --- AI defends when player units enter the base radius ---

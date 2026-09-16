@@ -18,6 +18,8 @@ class Terrain {
     this.obstacles = [];   // 3D meshes for rocks
     this.trees = [];       // 3D meshes for trees
     this.groundMesh = null;
+    this.oreRegenPerSec = 36;
+    this.minHarvestableOre = 80;
 
     this.init();
   }
@@ -422,13 +424,24 @@ generateTerrainMesh() {
     }
   }
 
-  // Find nearest available ore node with remaining gold
+  applyOreVisual(ore) {
+    if (!ore || !ore.mesh) return;
+    const max = ore.maxOre || 1;
+    const ratio = Math.max(0, Math.min(1, ore.remaining / max));
+    const vis = Math.max(0.12, ratio);
+    ore.mesh.visible = true;
+    ore.mesh.scale.set(0.28 + vis * 0.72, 0.18 + vis * 0.82, 0.28 + vis * 0.72);
+    if (ore.light) ore.light.intensity = 0.1 + ratio * 0.7;
+  }
+
+  // Find nearest ore node with enough remaining to be worth a trip
   getClosestOreDeposit(wx, wz) {
     let closest = null;
     let minDistSq = Infinity;
+    const minAmt = this.minHarvestableOre || 80;
 
     for (const ore of this.oreDeposits) {
-      if (ore.remaining > 0) {
+      if (ore.remaining >= minAmt) {
         const dx = ore.x - wx;
         const dz = ore.z - wz;
         const distSq = dx * dx + dz * dz;
@@ -446,28 +459,18 @@ generateTerrainMesh() {
     if (!oreNode || oreNode.remaining <= 0) return 0;
     const harvested = Math.min(oreNode.remaining, amount);
     oreNode.remaining -= harvested;
-
-    const ratio = oreNode.remaining / oreNode.maxOre;
-    oreNode.mesh.scale.set(0.4 + ratio * 0.6, 0.3 + ratio * 0.7, 0.4 + ratio * 0.6);
-    oreNode.light.intensity = 0.2 + ratio * 0.6;
-
-    if (oreNode.remaining <= 0) {
-      oreNode.mesh.visible = false;
-      oreNode.light.intensity = 0;
-    }
+    this.applyOreVisual(oreNode);
     return harvested;
   }
 
-  // Ore regeneration tick
+  // Ore regeneration tick — depleted fields stay visible as shrinking/growing crystals
   updateOreRegeneration(delta) {
-    this.oreDeposits.forEach(ore => {
+    const rate = this.oreRegenPerSec || 36;
+    this.oreDeposits.forEach((ore) => {
       if (ore.remaining < ore.maxOre) {
-        ore.remaining = Math.min(ore.maxOre, ore.remaining + delta * 8);
-        const ratio = ore.remaining / ore.maxOre;
-        ore.mesh.visible = true;
-        ore.mesh.scale.set(0.4 + ratio * 0.6, 0.3 + ratio * 0.7, 0.4 + ratio * 0.6);
-        ore.light.intensity = 0.2 + ratio * 0.6;
+        ore.remaining = Math.min(ore.maxOre, ore.remaining + delta * rate);
       }
+      this.applyOreVisual(ore);
     });
   }
 }

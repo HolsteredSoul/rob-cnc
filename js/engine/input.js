@@ -27,6 +27,7 @@ class InputManager {
 
     this.movePips = [];
     this.attackBracket = null;
+    this._radarDrag = false;
 
     this.initListeners();
   }
@@ -79,6 +80,12 @@ class InputManager {
       if (r && r.pointerLocked) {
         const ui = this.hitUiAt(pt.x, pt.y);
         if (ui) {
+          const radar = ui.closest ? ui.closest('#radar-container, #minimap-canvas') : null;
+          if (radar && this.ctx.minimap && typeof this.ctx.minimap.panFromClient === 'function') {
+            this._radarDrag = true;
+            this.ctx.minimap.panFromClient(pt.x, pt.y);
+            return;
+          }
           const clickable = ui.closest('button, .build-card, .build-tab, .cmd-mode-btn, .stance-btn, .action-btn, .team-card, .mission-card, .diff-btn, .badge-btn');
           if (clickable && clickable.click) {
             clickable.click();
@@ -123,6 +130,10 @@ class InputManager {
 
   onMouseMove(e) {
     const pt = this.getPointer(e);
+    if (this._radarDrag && this.ctx.minimap && typeof this.ctx.minimap.panFromClient === 'function') {
+      this.ctx.minimap.panFromClient(pt.x, pt.y);
+      return;
+    }
     // 1. Update Ghost Mesh during Building Placement
     if (this.placementBuildingType && this.ghostMesh) {
       const worldPos = this.ctx.renderer.getGroundIntersection(pt.x, pt.y);
@@ -172,6 +183,7 @@ class InputManager {
   }
 
   onMouseUp(e) {
+    if (e.button === 0) this._radarDrag = false;
     if (e.button === 0 && this.isLeftMouseDown) {
       this.isLeftMouseDown = false;
       if (this.selectionBoxEl) this.selectionBoxEl.style.display = 'none';
@@ -333,8 +345,8 @@ class InputManager {
     const oreDeposit = terrain.getClosestOreDeposit(worldPos.x, worldPos.z);
     const isClickingOre = oreDeposit && Math.hypot(oreDeposit.x - worldPos.x, oreDeposit.z - worldPos.z) <= oreDeposit.radius + 1.5;
 
-    // Check if right-clicking friendly Refinery (Deposit order for Harvesters)
-    const friendlyRefinery = this.getEntityAt(worldPos.x, worldPos.z, 'player');
+    const hasHarvester = entityManager.selectedUnits.some((u) => u.type === 'harvester');
+    const clickedRefinery = this.findFriendlyRefineryNear(worldPos.x, worldPos.z);
 
     if (enemyTarget) {
       // Check if any selected unit is an Engineer capturing an enemy building
@@ -369,13 +381,11 @@ class InputManager {
       });
       this.spawnGroundPip(oreDeposit.x, oreDeposit.z, 0xffaa00, 0.8);
       if (soundFX) soundFX.playOrder();
-    } else if (friendlyRefinery && friendlyRefinery.type === 'ore_refinery') {
-      // RETURN WITH CARGO
-      entityManager.selectedUnits.forEach(u => {
-        if (u.type === 'harvester') {
-          u.returnToRefinery(this.ctx);
-        }
+    } else if (hasHarvester && clickedRefinery) {
+      entityManager.selectedUnits.forEach((u) => {
+        if (u.type === 'harvester') u.returnToRefinery(this.ctx);
       });
+      this.spawnGroundPip(clickedRefinery.position.x, clickedRefinery.position.z, 0xffaa00, 0.8);
       if (soundFX) soundFX.playOrder();
     } else if (entityManager.selectedUnits.length === 0 && entityManager.selectedBuilding && entityManager.selectedBuilding.isProducer && entityManager.selectedBuilding.faction === 'player') {
       entityManager.selectedBuilding.setRally(worldPos.x, worldPos.z);
@@ -442,6 +452,39 @@ class InputManager {
     }
 
     return null;
+  }
+
+  findFriendlyRefineryNear(wx, wz) {
+    const { entityManager, terrain } = this.ctx;
+    if (!entityManager || !terrain) return null;
+    const pad = (terrain.tileSize || 2) * 1.35;
+    let best = null;
+    let bestDist = Infinity;
+    for (const b of entityManager.buildings) {
+      if (!b.isAlive || b.faction !== 'player' || b.type !== 'ore_refinery') continue;
+      const halfW = (b.footprint.w * terrain.tileSize) / 2 + pad;
+      const halfH = (b.footprint.h * terrain.tileSize) / 2 + pad;
+      if (Math.abs(b.position.x - wx) > halfW || Math.abs(b.position.z - wz) > halfH) continue;
+      const d = Math.hypot(b.position.x - wx, b.position.z - wz);
+      if (d < bestDist) {
+        bestDist = d;
+        best = b;
+      }
+    }
+    return best;
+  }
+
+  returnSelectedHarvesters() {
+    const units = this.ctx.entityManager && this.ctx.entityManager.selectedUnits;
+    if (!units || !units.length) return false;
+    let sent = 0;
+    units.forEach((u) => {
+      if (u.type === 'harvester' && typeof u.returnToRefinery === 'function') {
+        u.returnToRefinery(this.ctx);
+        sent++;
+      }
+    });
+    return sent > 0;
   }
 
   // --- Building Placement Mode ---
@@ -664,6 +707,7 @@ class InputManager {
         if (hasCombat) return 'attack';
       }
       if (hasHarvester && onOre) return 'harvest';
+      if (hasHarvester && this.findFriendlyRefineryNear(worldPos.x, worldPos.z)) return 'return';
       if (friend instanceof Unit && !units.includes(friend) && hasCombat) return 'follow';
       return 'move';
     }
@@ -680,7 +724,7 @@ class InputManager {
     if (vp && this.commandMode === 'normal') {
       vp.classList.remove(
         'cursor-attack', 'cursor-repair', 'cursor-sell', 'cursor-attackmove',
-        'cursor-harvest', 'cursor-move', 'cursor-follow', 'cursor-rally', 'cursor-capture', 'cursor-select'
+        'cursor-harvest', 'cursor-return', 'cursor-move', 'cursor-follow', 'cursor-rally', 'cursor-capture', 'cursor-select'
       );
       vp.classList.add(`cursor-${this.orderCursor}`);
     }
@@ -721,6 +765,19 @@ class InputManager {
         this.ctx.entityManager.selectControlGroup(groupNum);
         if (this.ctx.soundFX) this.ctx.soundFX.playSelect();
       }
+      return;
+    }
+
+    if (key === '[' || key === ']') {
+      if (this.ctx.renderer && typeof this.ctx.renderer.adjustCursorSensitivity === 'function') {
+        this.ctx.renderer.adjustCursorSensitivity(key === ']' ? 0.1 : -0.1);
+      }
+      return;
+    }
+
+    // 'R' Return selected harvesters to the nearest refinery
+    if (key === 'r') {
+      if (this.returnSelectedHarvesters() && this.ctx.soundFX) this.ctx.soundFX.playOrder();
       return;
     }
 

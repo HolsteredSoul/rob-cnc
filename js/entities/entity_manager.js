@@ -22,6 +22,7 @@ class EntityManager {
     this.units.forEach(u => {
       this.scene.remove(u.mesh);
       if (u.healthBar) this.scene.remove(u.healthBar);
+      if (u.cargoBar) this.scene.remove(u.cargoBar);
     });
     this.units = [];
 
@@ -78,6 +79,7 @@ class EntityManager {
         }
         this.scene.remove(u.mesh);
         if (u.healthBar) this.scene.remove(u.healthBar);
+        if (u.cargoBar) this.scene.remove(u.cargoBar);
         this.deselectUnit(u);
         this.units.splice(i, 1);
       } else {
@@ -91,6 +93,7 @@ class EntityManager {
           u.mesh.visible = true;
         }
         if (u.healthBar && !u.mesh.visible) u.healthBar.visible = false;
+        if (u.cargoBar && !u.mesh.visible) u.cargoBar.visible = false;
       }
     }
 
@@ -167,7 +170,7 @@ class EntityManager {
     const attackMove = !!(options && options.attackMove);
     const live = (units || []).filter((u) => u && u.isAlive);
     if (!live.length) return;
-    const spacing = live.some((u) => u.isVehicle) ? 3.0 : 2.2;
+    const spacing = live.some((u) => u.isVehicle) ? 3.2 : 2.5;
     const slots = this.formationSlots(live.length, destX, destZ, spacing);
     live.forEach((u, i) => {
       const raw = slots[i] || { x: destX, z: destZ };
@@ -182,12 +185,37 @@ class EntityManager {
     return unit.harvesterState === 'UNLOADING' || unit.harvesterState === 'MINING';
   }
 
+  isUnitMoving(unit) {
+    return !!(unit && unit.waypoints && unit.waypoints.length > 0);
+  }
+
+  isHoldingSlot(unit) {
+    if (!unit || this.isUnitMoving(unit)) return false;
+    if (unit.destX == null || unit.destZ == null) return false;
+    const d = Math.hypot(unit.position.x - unit.destX, unit.position.z - unit.destZ);
+    return d < (unit.isVehicle ? 1.25 : 0.8);
+  }
+
+  applySeparationOffset(unit, ox, oz) {
+    if (!unit || !unit.isAlive) return;
+    unit.position.x += ox;
+    unit.position.z += oz;
+    if (unit.mesh) {
+      unit.mesh.position.x = unit.position.x;
+      unit.mesh.position.z = unit.position.z;
+      if (typeof unit.applyWalkBob === 'function') unit.applyWalkBob();
+    }
+  }
+
   applyUnitSeparation(delta) {
     const count = this.units.length;
-    const push = 18 * delta;
+    const stepCap = Math.min(0.38, 12 * delta);
     for (let i = 0; i < count; i++) {
       const u1 = this.units[i];
       if (!u1.isAlive || u1.isAir) continue;
+      const moving1 = this.isUnitMoving(u1);
+      const hold1 = this.isHoldingSlot(u1);
+      const lock1 = this.isDockLocked(u1);
 
       for (let j = i + 1; j < count; j++) {
         const u2 = this.units[j];
@@ -196,9 +224,15 @@ class EntityManager {
         const dx = u1.position.x - u2.position.x;
         const dz = u1.position.z - u2.position.z;
         let distSq = dx * dx + dz * dz;
-        const minDist = (u1.isVehicle ? 2.0 : 1.25) + (u2.isVehicle ? 2.0 : 1.25);
+        const rad1 = u1.type === 'harvester' ? 2.55 : (u1.isVehicle ? 2.05 : 1.3);
+        const rad2 = u2.type === 'harvester' ? 2.55 : (u2.isVehicle ? 2.05 : 1.3);
+        const minDist = rad1 + rad2;
         const minDistSq = minDist * minDist;
         if (distSq >= minDistSq) continue;
+
+        const moving2 = this.isUnitMoving(u2);
+        const hold2 = this.isHoldingSlot(u2);
+        const lock2 = this.isDockLocked(u2);
 
         let nx;
         let nz;
@@ -214,27 +248,42 @@ class EntityManager {
           nz = dz / dist;
         }
 
-        const overlap = (minDist - dist) * 0.5;
-        const mag = overlap * push;
-        const lock1 = this.isDockLocked(u1);
-        const lock2 = this.isDockLocked(u2);
-        if (!lock1) {
-          u1.position.x += nx * mag;
-          u1.position.z += nz * mag;
-          if (u1.mesh) {
-            u1.mesh.position.x = u1.position.x;
-            u1.mesh.position.z = u1.position.z;
-            if (typeof u1.applyWalkBob === 'function') u1.applyWalkBob();
-          }
+        if (hold1 && hold2 && !moving1 && !moving2) {
+          const slotGap = Math.hypot((u1.destX || 0) - (u2.destX || 0), (u1.destZ || 0) - (u2.destZ || 0));
+          if (slotGap > 0.6 && dist > minDist * 0.72) continue;
         }
-        if (!lock2) {
-          u2.position.x -= nx * mag;
-          u2.position.z -= nz * mag;
-          if (u2.mesh) {
-            u2.mesh.position.x = u2.position.x;
-            u2.mesh.position.z = u2.position.z;
-            if (typeof u2.applyWalkBob === 'function') u2.applyWalkBob();
-          }
+
+        let w1 = 0.5;
+        let w2 = 0.5;
+        const harv1 = u1.type === 'harvester';
+        const harv2 = u2.type === 'harvester';
+        if (lock1 && lock2) continue;
+        if (lock1 && !lock2) { w1 = 0; w2 = 1; }
+        else if (lock2 && !lock1) { w1 = 1; w2 = 0; }
+        else if (harv1 !== harv2) {
+          if (harv1) { w1 = 0.18; w2 = 0.82; }
+          else { w1 = 0.82; w2 = 0.18; }
+        }
+        else if (moving1 && !moving2) { w1 = 1; w2 = 0; }
+        else if (moving2 && !moving1) { w1 = 0; w2 = 1; }
+        else if (hold1 && !hold2) { w1 = 0; w2 = 1; }
+        else if (hold2 && !hold1) { w1 = 1; w2 = 0; }
+
+        const share = w1 + w2;
+        if (share <= 0) continue;
+        const overlap = minDist - dist;
+        const cap = (harv1 || harv2) ? Math.min(0.72, 22 * delta) : stepCap;
+        const mag = Math.min(overlap * 0.55, cap);
+        this.applySeparationOffset(u1, nx * mag * (w1 / share), nz * mag * (w1 / share));
+        this.applySeparationOffset(u2, -nx * mag * (w2 / share), -nz * mag * (w2 / share));
+
+        if ((moving1 && !moving2) || (moving2 && !moving1)) {
+          const side = ((i + j) % 2 === 0) ? 1 : -1;
+          const slide = mag * 0.35;
+          const sx = -nz * side * slide;
+          const sz = nx * side * slide;
+          if (moving1 && !lock1) this.applySeparationOffset(u1, sx, sz);
+          else if (moving2 && !lock2) this.applySeparationOffset(u2, sx, sz);
         }
       }
     }

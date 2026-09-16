@@ -92,14 +92,17 @@ html.pointer-locked * {
 #game-cursor.is-attack .cursor-caption,
 #game-cursor.is-attackmove .cursor-caption { color: #ff6666; }
 
-#game-cursor.is-harvest {
+#game-cursor.is-harvest,
+#game-cursor.is-return {
   border-color: #ffaa00;
   border-radius: 2px;
   transform: rotate(45deg);
   box-shadow: 0 0 8px rgba(255, 170, 0, 0.7);
 }
-#game-cursor.is-harvest::after { background: #ffaa00; }
-#game-cursor.is-harvest .cursor-caption { color: #ffcc66; transform: translateX(-50%) rotate(-45deg); }
+#game-cursor.is-harvest::after,
+#game-cursor.is-return::after { background: #ffaa00; }
+#game-cursor.is-harvest .cursor-caption,
+#game-cursor.is-return .cursor-caption { color: #ffcc66; transform: translateX(-50%) rotate(-45deg); }
 
 #game-cursor.is-move {
   border-color: #33ff33;
@@ -170,7 +173,8 @@ html.pointer-locked * {
   cursor: no-drop !important;
 }
 
-#viewport.cursor-harvest {
+#viewport.cursor-harvest,
+#viewport.cursor-return {
   cursor: alias !important;
 }
 
@@ -569,15 +573,22 @@ html.pointer-locked * {
 
 #radar-offline-msg {
   position: absolute;
-  color: var(--cnc-red);
-  font-size: 13px;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  top: auto;
+  color: #c9d6de;
+  font-size: 10px;
   font-weight: bold;
-  letter-spacing: 2px;
-  text-shadow: 0 0 8px var(--cnc-red-glow);
+  letter-spacing: 1.4px;
+  text-shadow: 0 1px 4px #000;
   text-align: center;
   display: none;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
+  pointer-events: none;
+  background: rgba(8, 14, 18, 0.55);
+  padding: 4px 6px;
 }
 
 /* Status & Power Bar Row */

@@ -98,9 +98,11 @@ class SkirmishAI {
 
     this.baseCenter = { x: hq.position.x, z: hq.position.z };
 
-    if (this.defendBase(gameContext, hq, enemyUnits)) return;
-
-    this.stageIdleUnits(gameContext, hq, enemyUnits);
+    const defending = this.defendBase(gameContext, hq, enemyUnits);
+    if (!defending) {
+      this.redirectFieldUnits(gameContext, hq, enemyUnits);
+      this.stageIdleUnits(gameContext, hq, enemyUnits);
+    }
 
     // 1. Repair damaged buildings if allowed
     if (this.difficultyConfig.repairsBuildings) {
@@ -314,17 +316,54 @@ class SkirmishAI {
     }
   }
 
+  redirectFieldUnits(gameContext, hq, enemyUnits) {
+    const { pathfinding, entityManager } = gameContext;
+    const radius = this.difficultyConfig.defendRadius || 30;
+    const combat = this.combatUnits(entityManager);
+    const stragglers = combat.filter((u) => {
+      if (!u.isAlive) return false;
+      const dist = Math.hypot(u.position.x - hq.position.x, u.position.z - hq.position.z);
+      if (dist <= radius) return false;
+      if (u.order === 'attack' || u.order === 'attackMove') {
+        if (u.waypoints && u.waypoints.length > 0) return false;
+        if (u.targetEntity && u.targetEntity.isAlive) return false;
+      }
+      if (u.order === 'move' && u.waypoints && u.waypoints.length > 0) return false;
+      return true;
+    });
+    if (!stragglers.length) return;
+    const target = this.pickAssaultTarget(gameContext);
+    if (!target || !target.position) return;
+    if (typeof entityManager.issueMoveOrders === 'function') {
+      entityManager.issueMoveOrders(stragglers, target.position.x, target.position.z, pathfinding, { attackMove: true });
+    } else {
+      stragglers.forEach((u) => {
+        if (typeof u.attackMoveTo === 'function') u.attackMoveTo(target.position.x, target.position.z, pathfinding);
+        else if (typeof u.attackTarget === 'function') u.attackTarget(target, pathfinding);
+      });
+    }
+  }
+
   launchAssault(gameContext) {
     const { entityManager, pathfinding } = gameContext;
     const combatUnits = this.combatUnits(entityManager);
     const garrison = this.difficultyConfig.garrison || 0;
     const available = Math.max(0, combatUnits.length - garrison);
-    if (available < this.difficultyConfig.attackSquadSize) return false;
+    if (available < 1) return false;
 
     const target = this.pickAssaultTarget(gameContext);
     if (!target || !target.position) return false;
 
-    const squad = combatUnits.slice(0, this.difficultyConfig.attackSquadSize);
+    const hq = entityManager.getEnemyBuildings().find((b) => b.type === 'command_center' && b.isAlive);
+    const hx = hq ? hq.position.x : this.baseCenter.x;
+    const hz = hq ? hq.position.z : this.baseCenter.z;
+    const ranked = combatUnits.slice().sort((a, b) => {
+      const da = Math.hypot(a.position.x - hx, a.position.z - hz);
+      const db = Math.hypot(b.position.x - hx, b.position.z - hz);
+      return db - da;
+    });
+    const waveSize = Math.min(this.difficultyConfig.attackSquadSize, available);
+    const squad = ranked.slice(0, waveSize);
     if (typeof entityManager.issueMoveOrders === 'function') {
       entityManager.issueMoveOrders(squad, target.position.x, target.position.z, pathfinding, { attackMove: true });
     } else {

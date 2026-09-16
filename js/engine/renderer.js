@@ -40,6 +40,7 @@ class GameRenderer {
     this.lockHintEl = null;
     this.orderCursor = 'select';
     this._lockWarmup = 0;
+    this.cursorSensitivity = this.loadCursorSensitivity();
     
     // Map bounds (clamping)
     this.mapBounds = { minX: 10, maxX: 190, minZ: 10, maxZ: 190 };
@@ -163,9 +164,10 @@ class GameRenderer {
         this.pointerInside = true;
         return;
       }
+      const scaled = this.scaleLockedMouseDelta(mx, my);
       const bounds = this.getLockBounds();
-      this.virtualCursor.x = Math.max(bounds.left + 1, Math.min(bounds.right - 1, this.virtualCursor.x + mx));
-      this.virtualCursor.y = Math.max(bounds.top + 1, Math.min(bounds.bottom - 1, this.virtualCursor.y + my));
+      this.virtualCursor.x = Math.max(bounds.left + 1, Math.min(bounds.right - 1, this.virtualCursor.x + scaled.x));
+      this.virtualCursor.y = Math.max(bounds.top + 1, Math.min(bounds.bottom - 1, this.virtualCursor.y + scaled.y));
       this.pointerInside = true;
     } else {
       this.virtualCursor.x = e.clientX;
@@ -197,6 +199,41 @@ class GameRenderer {
     }
 
     this.syncCursorHud();
+  }
+
+  loadCursorSensitivity() {
+    try {
+      const v = parseFloat(localStorage.getItem('vanguard-cursor-sens'));
+      if (v >= 0.4 && v <= 2.5) return v;
+    } catch (err) { /* no storage */ }
+    return 1;
+  }
+
+  saveCursorSensitivity() {
+    try {
+      localStorage.setItem('vanguard-cursor-sens', String(this.cursorSensitivity));
+    } catch (err) { /* no storage */ }
+  }
+
+  adjustCursorSensitivity(delta) {
+    const next = Math.max(0.4, Math.min(2.5, (this.cursorSensitivity || 1) + delta));
+    this.cursorSensitivity = Math.round(next * 10) / 10;
+    this.saveCursorSensitivity();
+    if (this.lockHintEl && this.lockEnabled) {
+      this.lockHintEl.classList.remove('hidden');
+      this.lockHintEl.textContent = 'CURSOR SENS ' + this.cursorSensitivity.toFixed(1) + '  ([ ] to adjust)';
+    }
+  }
+
+  scaleLockedMouseDelta(mx, my) {
+    const bounds = this.getLockBounds();
+    const w = Math.max(1, bounds.right - bounds.left);
+    const h = Math.max(1, bounds.bottom - bounds.top);
+    const sizeScale = Math.max(0.85, Math.min(2.4, Math.hypot(w, h) / Math.hypot(1280, 720)));
+    const mag = Math.hypot(mx, my);
+    const accel = mag <= 2 ? 1 : 1 + Math.min(0.7, (mag - 2) * 0.04);
+    const sens = (this.cursorSensitivity || 1) * sizeScale * accel;
+    return { x: mx * sens, y: my * sens };
   }
 
   getLockBounds() {
@@ -272,7 +309,7 @@ class GameRenderer {
       const cap = this.cursorEl.querySelector('.cursor-caption');
       if (cap) {
         const labels = {
-          attack: 'ATTACK', harvest: 'HARVEST', capture: 'CAPTURE', follow: 'ESCORT',
+          attack: 'ATTACK', harvest: 'HARVEST', return: 'RETURN', capture: 'CAPTURE', follow: 'ESCORT',
           rally: 'RALLY', move: 'MOVE', attackmove: 'A-MOVE', repair: 'REPAIR',
           sell: 'SELL', select: '', place: 'PLACE'
         };

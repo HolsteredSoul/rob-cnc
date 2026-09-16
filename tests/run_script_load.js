@@ -85,9 +85,26 @@ try {
   const before = { x: renderer.virtualCursor.x, y: renderer.virtualCursor.y };
   renderer.applyMouseMove({ movementX: 400, movementY: -300, clientX: 0, clientY: 0 });
   assert(renderer.virtualCursor.x === before.x && renderer.virtualCursor.y === before.y, 'lock recenter jump must not move the virtual cursor');
+  renderer._lockWarmup = 0;
+  renderer.cursorSensitivity = 1;
+  renderer.lockRoot = { getBoundingClientRect() { return { left: 0, top: 0, right: 1920, bottom: 1080 }; } };
+  renderer.virtualCursor = { x: 200, y: 200 };
+  renderer.applyMouseMove({ movementX: 10, movementY: 0, clientX: 0, clientY: 0 });
+  assert(renderer.virtualCursor.x > 210, 'locked cursor should scale with window size (x=' + renderer.virtualCursor.x + ')');
   renderer.setPlayCapture(false);
   assert(renderer.lockEnabled === false, 'lobby should release pointer lock');
   console.log('pointer lock / edge-pan idle: ok');
+
+  const mini = ctx.minimap;
+  assert(mini && typeof mini.panFromClient === 'function', 'minimap missing panFromClient');
+  const camBefore = { x: ctx.renderer.targetPos.x, z: ctx.renderer.targetPos.z };
+  mini.canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 220, height: 200, right: 220, bottom: 200 });
+  mini.panFromClient(200, 180);
+  assert(
+    ctx.renderer.targetPos.x !== camBefore.x || ctx.renderer.targetPos.z !== camBefore.z,
+    'radar click did not pan camera'
+  );
+  console.log('radar panFromClient: ok');
 
   console.log('SCRIPT_LOAD_OK');
   process.exit(0);
