@@ -15,13 +15,29 @@ class Minimap {
   }
 
   initEvents() {
+    this.canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      e.preventDefault();
+      this.gameContext.renderer.setTouchInput(true);
+      this.isDragging = true;
+      this.touchId = e.pointerId;
+      if (this.canvas.setPointerCapture) this.canvas.setPointerCapture(e.pointerId);
+      this.panFromClient(e.clientX, e.clientY);
+    });
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (this.isDragging && e.pointerId === this.touchId) { e.preventDefault(); this.panFromClient(e.clientX, e.clientY); }
+    });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => this.canvas.addEventListener(type, () => {
+      this.isDragging = false; this.touchId = null;
+    }));
     this.canvas.addEventListener('mousedown', (e) => {
+      if (this.gameContext.renderer.touchInput) return;
       this.isDragging = true;
       this.handleMinimapClick(e);
     });
 
     window.addEventListener('mousemove', (e) => {
-      if (this.isDragging) {
+      if (this.isDragging && !this.gameContext.renderer.touchInput) {
         this.handleMinimapClick(e);
       }
     });

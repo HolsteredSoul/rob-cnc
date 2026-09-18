@@ -92,11 +92,21 @@ Then open [http://127.0.0.1:8000/index.html](http://127.0.0.1:8000/index.html)
 | Select | Left-click or drag a box |
 | Move / attack | Right-click |
 | Build | Sidebar cards, then click the map |
-| Camera | WASD / arrow keys, screen-edge pan, minimap, mouse wheel zoom |
+| Camera | W/A/D / arrow keys, screen-edge pan, minimap, mouse wheel zoom |
 | Stop units | `S` |
 | Jump to HQ | `H` |
 | Lock mouse in the window | Click the battlefield (Esc releases) |
 | Repair / sell | Sidebar mode buttons, then click a building |
+
+### Phones and tablets
+
+Play in landscape. Tap a friendly unit to select it, then tap clear ground to move or a visible enemy to attack. Drag with one finger to pan; pinch with two fingers to zoom. **Select Area** makes the next drag select a squad instead. **More** contains army shortcuts, three Assign/Recall groups, stances, Escort, Rally, Return cargo, Repair, Sell, and Airstrike.
+
+**Build** opens a scrollable drawer. Tap **Info** for costs and prerequisites, including on locked cards. Tap a structure card, tap the battlefield to preview, then **Place** or **Cancel**. Drag the preview to adjust it; use two fingers to navigate during placement. Unit cards train one unit per tap; **Cancel one** cancels production. Selling asks for confirmation.
+
+**Pause / Resume** and **1× / 0.5×** are available on desktop and mobile. Menus, switching away from the browser, and portrait rotation pause gameplay. Tap Resume when ready; selection and camera inspection remain available while paused. Spending and gameplay commands require Resume. Mobile uses reduced resolution and disables shadows. Production and repair remain manual.
+
+The browser must stay open to retain a mission; this version does not save a session after the browser discards it. Real-device Safari/Android performance remains a release validation task; browser emulation is not a substitute.
 
 Mission 1 on Easy is the tutorial: move, power plant, refinery (free harvester), barracks, train troops, then take the enemy HQ.
 
@@ -109,6 +119,8 @@ Needs [Node.js](https://nodejs.org/) only for this part — not for playing.
 ```bash
 npm test
 npm run test:scripts
+npm run test:resources
+npm run test:mobile
 ```
 
 ---

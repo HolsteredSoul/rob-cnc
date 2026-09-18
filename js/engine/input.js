@@ -29,10 +29,24 @@ class InputManager {
     this.attackBracket = null;
     this._radarDrag = false;
 
+    this.touchPoints = new Map();
+    this.touchGesture = null;
+    this.selectArea = false;
+    this.suppressMouseUntil = 0;
     this.initListeners();
   }
 
   initListeners() {
+    if (this.canvas) {
+      this.canvas.addEventListener('pointerdown', (e) => this.onTouchDown(e));
+      this.canvas.addEventListener('pointermove', (e) => this.onTouchMove(e));
+      this.canvas.addEventListener('pointerup', (e) => this.onTouchUp(e));
+      this.canvas.addEventListener('pointercancel', () => this.cancelTouchGesture());
+      this.canvas.addEventListener('lostpointercapture', (e) => {
+        if (this.touchPoints.has(e.pointerId)) this.cancelTouchGesture();
+      });
+    }
+    window.addEventListener('blur', () => this.cancelTouchGesture());
     window.addEventListener('mousedown', (e) => {
       if (e.button === 1) e.preventDefault();
       this.onMouseDown(e);
@@ -54,7 +68,7 @@ class InputManager {
 
   isHudTarget(el) {
     if (!el || !el.closest) return false;
-    return !!el.closest('#sidebar, #top-tactical-bar, #selection-card, #mission-objective-bar, .modal-overlay, #pointer-lock-hint, button, .build-card, .build-tab, .cmd-mode-btn');
+    return !!el.closest('#sidebar, #top-tactical-bar, #selection-card, #mission-objective-bar, .modal-overlay, #pointer-lock-hint, button, .build-card, .build-tab, .cmd-mode-btn, #mobile-controls, #mobile-more, #placement-controls, #rotate-prompt, #command-feedback');
   }
 
   hitUiAt(x, y) {
@@ -65,6 +79,7 @@ class InputManager {
   }
 
   onMouseDown(e) {
+    if (this.ignoreMouse(e) || !this.ctx.missionActive) return;
     if (e._cncVirtual) return;
     if (e.button === 2) {
       e.preventDefault();
@@ -107,13 +122,13 @@ class InputManager {
         return;
       }
 
-      if (this.placementBuildingType) {
+      if (this.placementBuildingType && !this.ctx.paused) {
         // Place building if valid
         this.confirmBuildingPlacement();
         return;
       }
 
-      if (this.commandMode === 'airstrike') {
+      if (this.commandMode === 'airstrike' && !this.ctx.paused) {
         this.executeAirstrikeAtMouse(pt.x, pt.y);
         return;
       }
@@ -129,6 +144,7 @@ class InputManager {
   }
 
   onMouseMove(e) {
+    if (this.ignoreMouse(e)) return;
     const pt = this.getPointer(e);
     // Native hover follows the locked element, so hit-test the virtual cursor.
     if (this.ctx.renderer.pointerLocked && this.ctx.hud) {
@@ -146,24 +162,7 @@ class InputManager {
     }
     // 1. Update Ghost Mesh during Building Placement
     if (this.placementBuildingType && this.ghostMesh) {
-      const worldPos = this.ctx.renderer.getGroundIntersection(pt.x, pt.y);
-      if (worldPos) {
-        const spec = BUILDING_SPECS[this.placementBuildingType];
-        const gridPos = this.ctx.terrain.worldToGrid(worldPos.x, worldPos.z);
-        this.ghostGridPos = gridPos;
-
-        const worldW = spec.footprint.w * this.ctx.terrain.tileSize;
-        const worldH = spec.footprint.h * this.ctx.terrain.tileSize;
-        this.ghostMesh.position.set(
-          gridPos.gx * this.ctx.terrain.tileSize + worldW / 2,
-          0,
-          gridPos.gz * this.ctx.terrain.tileSize + worldH / 2
-        );
-
-        // Check if placement is valid
-        this.canPlaceCurrentGhost = this.checkPlacementValidity(gridPos.gx, gridPos.gz, spec.footprint);
-        this.updateGhostColor(this.canPlaceCurrentGhost);
-      }
+      this.updatePlacementAt(pt.x, pt.y);
       return;
     }
 
@@ -193,6 +192,7 @@ class InputManager {
   }
 
   onMouseUp(e) {
+    if (this.ignoreMouse(e)) return;
     if (e.button === 0) this._radarDrag = false;
     if (e.button === 0 && this.isLeftMouseDown) {
       this.isLeftMouseDown = false;
@@ -232,36 +232,16 @@ class InputManager {
   }
 
   handleSingleClickSelection(screenX, screenY, worldPos, ev) {
+    const clickedEntity = this.getEntityAt(worldPos.x, worldPos.z);
+    this.selectOrActOnEntity(clickedEntity, worldPos, ev);
+  }
+
+  selectOrActOnEntity(clickedEntity, worldPos, ev) {
     const { entityManager, soundFX } = this.ctx;
-
-    // Check clicked entity
-    let clickedEntity = null;
-    let minDist = 2.4;
-
-    // Check units
-    for (const u of entityManager.units) {
-      if (!u.isAlive) continue;
-      const d = Math.hypot(u.position.x - worldPos.x, u.position.z - worldPos.z);
-      if (d < (u.isVehicle ? 3.0 : 1.8) && d < minDist) {
-        minDist = d;
-        clickedEntity = u;
-      }
+    if (this.ctx.paused) {
+      entityManager.selectSingle(clickedEntity);
+      return;
     }
-
-    // Check buildings if no unit clicked
-    if (!clickedEntity) {
-      for (const b of entityManager.buildings) {
-        if (!b.isAlive) continue;
-        const halfW = (b.footprint.w * this.ctx.terrain.tileSize) / 2;
-        const halfH = (b.footprint.h * this.ctx.terrain.tileSize) / 2;
-        if (Math.abs(b.position.x - worldPos.x) <= halfW &&
-            Math.abs(b.position.z - worldPos.z) <= halfH) {
-          clickedEntity = b;
-          break;
-        }
-      }
-    }
-
     // Handle Repair or Sell Mode clicks
     if (this.commandMode === 'repair' && clickedEntity && clickedEntity instanceof Building && clickedEntity.faction === 'player') {
       clickedEntity.isRepairing = !clickedEntity.isRepairing;
@@ -270,26 +250,14 @@ class InputManager {
     }
 
     if (this.commandMode === 'sell' && clickedEntity && clickedEntity instanceof Building && clickedEntity.faction === 'player') {
-      const refund = Math.floor(clickedEntity.spec.cost * 0.5);
-      this.ctx.economy.addCredits('player', refund);
-      clickedEntity.takeDamage(99999);
-      if (soundFX) soundFX.playExplosion(false);
-      this.setCommandMode('normal');
+      if (this.ctx.hud) this.ctx.hud.confirmSell(clickedEntity);
       return;
     }
 
     if (this.commandMode === 'attackmove' && worldPos) {
-      if (typeof entityManager.issueMoveOrders === 'function') {
-        entityManager.issueMoveOrders(entityManager.selectedUnits, worldPos.x, worldPos.z, this.ctx.pathfinding, { attackMove: true });
-      } else {
-        entityManager.selectedUnits.forEach((u) => {
-          if (typeof u.attackMoveTo === 'function') u.attackMoveTo(worldPos.x, worldPos.z, this.ctx.pathfinding);
-          else u.moveTo(worldPos.x, worldPos.z, this.ctx.pathfinding);
-        });
-      }
-      this.spawnGroundPip(worldPos.x, worldPos.z, 0xff5555, 0.7);
-      if (soundFX) soundFX.playOrder();
+      this.issueOrderAt(worldPos, { forceAttackMove: true });
       this.setCommandMode('normal');
+      this.touchFeedback('Attack-move');
       return;
     }
 
@@ -317,8 +285,9 @@ class InputManager {
   }
 
   onRightClick(e) {
+    if (this.ignoreMouse(e) || this.ctx.paused) return;
     if (e._cncVirtual) return;
-    const { entityManager, pathfinding, terrain, soundFX, missionManager } = this.ctx;
+    const { entityManager } = this.ctx;
     const r = this.ctx.renderer;
     if (r && !r.pointerLocked && typeof e.clientX === 'number') {
       r.seedVirtualCursor(e.clientX, e.clientY);
@@ -348,8 +317,24 @@ class InputManager {
     const worldPos = this.ctx.renderer.getGroundIntersection(pt.x, pt.y);
     if (!worldPos) return;
 
+    this.issueOrderAt(worldPos, { attackMove: this.commandMode === 'attackmove' || !!e.shiftKey });
+  }
+
+  issueOrderAt(worldPos, options = {}) {
+    if (this.ctx.paused || !worldPos) return;
+    const { entityManager, pathfinding, terrain, soundFX, missionManager } = this.ctx;
+    // Enemy inspection must never allow commanding the opposing army.
+    if (entityManager.selectedUnits.some(u => u.faction !== 'player')) return;
+    if (options.forceAttackMove) {
+      entityManager.issueMoveOrders(entityManager.selectedUnits, worldPos.x, worldPos.z, pathfinding, { attackMove: true });
+      this.spawnGroundPip(worldPos.x, worldPos.z, 0xff5555, 0.7);
+      if (soundFX) soundFX.playOrder();
+      if (missionManager && entityManager.selectedUnits.length) missionManager.playerHasMovedUnits = true;
+      return;
+    }
     // Check if right-clicking an enemy entity (Attack order)
-    const enemyTarget = this.getEntityAt(worldPos.x, worldPos.z, 'enemy');
+    const enemyTarget = options.target && options.target.faction === 'enemy' && this.isEntityVisible(options.target)
+      ? options.target : this.getEntityAt(worldPos.x, worldPos.z, 'enemy');
 
     // Check if right-clicking an ore node (Harvest order for Harvesters)
     const oreDeposit = terrain.getClosestOreDeposit(worldPos.x, worldPos.z);
@@ -404,7 +389,7 @@ class InputManager {
       if (soundFX) soundFX.playOrder();
     } else {
       const friendly = this.getEntityAt(worldPos.x, worldPos.z, 'player');
-      const wantAttackMove = this.commandMode === 'attackmove' || (e && e.shiftKey);
+      const wantAttackMove = this.commandMode === 'attackmove' || options.attackMove;
       if (friendly instanceof Unit && entityManager.selectedUnits.length && !entityManager.selectedUnits.includes(friendly)) {
         entityManager.selectedUnits.forEach((u) => {
           if (typeof u.followUnit === 'function') u.followUnit(friendly);
@@ -443,16 +428,20 @@ class InputManager {
   getEntityAt(wx, wz, faction = null) {
     const { entityManager } = this.ctx;
 
+    let nearest = null;
+    let nearestDistance = Infinity;
     for (const u of entityManager.units) {
-      if (u.isAlive && (!faction || u.faction === faction)) {
-        if (Math.hypot(u.position.x - wx, u.position.z - wz) <= (u.isVehicle ? 3.0 : 1.8)) {
-          return u;
-        }
+      if (!this.isEntityVisible(u) || (faction && u.faction !== faction)) continue;
+      const distance = Math.hypot(u.position.x - wx, u.position.z - wz);
+      if (distance <= (u.isVehicle ? 3.0 : 1.8) && distance < nearestDistance) {
+        nearest = u;
+        nearestDistance = distance;
       }
     }
+    if (nearest) return nearest;
 
     for (const b of entityManager.buildings) {
-      if (b.isAlive && (!faction || b.faction === faction)) {
+      if (this.isEntityVisible(b) && (!faction || b.faction === faction)) {
         const halfW = (b.footprint.w * this.ctx.terrain.tileSize) / 2;
         const halfH = (b.footprint.h * this.ctx.terrain.tileSize) / 2;
         if (Math.abs(b.position.x - wx) <= halfW && Math.abs(b.position.z - wz) <= halfH) {
@@ -485,11 +474,12 @@ class InputManager {
   }
 
   returnSelectedHarvesters() {
+    if (this.ctx.paused) return false;
     const units = this.ctx.entityManager && this.ctx.entityManager.selectedUnits;
     if (!units || !units.length) return false;
     let sent = 0;
     units.forEach((u) => {
-      if (u.type === 'harvester' && typeof u.returnToRefinery === 'function') {
+      if (u.faction === 'player' && u.type === 'harvester' && typeof u.returnToRefinery === 'function') {
         u.returnToRefinery(this.ctx);
         sent++;
       }
@@ -497,9 +487,204 @@ class InputManager {
     return sent > 0;
   }
 
+  ignoreMouse(e) {
+    return this.ctx.renderer.touchInput || Date.now() < this.suppressMouseUntil
+      || !!(e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents);
+  }
+
+  isEntityVisible(entity) {
+    return entity && entity.isAlive && (entity.faction === 'player' || !this.ctx.fogOfWar
+      || this.ctx.fogOfWar.isVisible(entity.position.x, entity.position.z));
+  }
+
+  pickTouchEntity(point) {
+    const world = this.ctx.renderer.getGroundIntersection(point.x, point.y);
+    if (!world) return null;
+    const direct = this.getEntityAt(world.x, world.z);
+    if (direct) return direct;
+    let best = null;
+    let distance = 25;
+    for (const entity of [...this.ctx.entityManager.units, ...this.ctx.entityManager.buildings]) {
+      if (!this.isEntityVisible(entity)) continue;
+      const screen = this.ctx.renderer.worldToScreen(entity.position);
+      if (!screen.visible) continue;
+      const d = Math.hypot(screen.x - point.x, screen.y - point.y);
+      if (d < distance) { distance = d; best = entity; }
+    }
+    return best;
+  }
+
+  touchFeedback(label) {
+    if (this.ctx.hud) this.ctx.hud.showCommandFeedback(label);
+  }
+
+  onTouchDown(e) {
+    if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+    this.ctx.renderer.setTouchInput(true);
+    this.suppressMouseUntil = Date.now() + 800;
+    if (!this.ctx.missionActive || this.ctx.portraitBlocked) return;
+    e.preventDefault();
+    if (this.canvas.setPointerCapture) this.canvas.setPointerCapture(e.pointerId);
+    const point = { x: e.clientX, y: e.clientY };
+    this.touchPoints.set(e.pointerId, point);
+    if (this.touchPoints.size === 1) {
+      this.touchGesture = { start: point, last: point, moved: false, multi: false,
+        area: this.selectArea, placement: !!this.placementBuildingType && !this.ctx.paused };
+    } else if (this.touchGesture) {
+      this.touchGesture.multi = true;
+      this.touchGesture.moved = true;
+      this.selectArea = false;
+      this.selectionBoxEl.style.display = 'none';
+    }
+  }
+
+  onTouchMove(e) {
+    if (!this.touchPoints.has(e.pointerId) || !this.touchGesture) return;
+    e.preventDefault();
+    const before = [...this.touchPoints.values()];
+    const point = { x: e.clientX, y: e.clientY };
+    this.touchPoints.set(e.pointerId, point);
+    const after = [...this.touchPoints.values()];
+    const g = this.touchGesture;
+    if (after.length >= 2) {
+      const mid = (p) => ({ x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 });
+      const dist = (p) => Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      this.ctx.renderer.panBetweenClients(mid(before), mid(after));
+      if (dist(after) > 8 && dist(before) > 8) this.ctx.renderer.zoomAtClient(dist(before) / dist(after), mid(after));
+      return;
+    }
+    // Once a second finger participated, wait for all fingers to lift.
+    if (g.multi) return;
+    if (Math.hypot(point.x - g.start.x, point.y - g.start.y) > 10) g.moved = true;
+    if (g.moved) {
+      if (g.placement) this.updatePlacementAt(point.x, point.y);
+      else if (g.area) {
+        const rect = this.canvas.getBoundingClientRect();
+        Object.assign(this.selectionBoxEl.style, { display: 'block',
+          left: `${Math.min(g.start.x, point.x) - rect.left}px`, top: `${Math.min(g.start.y, point.y) - rect.top}px`,
+          width: `${Math.abs(point.x - g.start.x)}px`, height: `${Math.abs(point.y - g.start.y)}px` });
+      } else this.ctx.renderer.panBetweenClients(g.last, point);
+    }
+    g.last = point;
+  }
+
+  onTouchUp(e) {
+    if (!this.touchPoints.has(e.pointerId)) return;
+    e.preventDefault();
+    const g = this.touchGesture;
+    this.touchPoints.delete(e.pointerId);
+    this.suppressMouseUntil = Date.now() + 800;
+    if (this.touchPoints.size) return;
+    this.touchGesture = null;
+    this.selectionBoxEl.style.display = 'none';
+    if (!g || g.multi) return;
+    const point = { x: e.clientX, y: e.clientY };
+    if (Math.hypot(point.x - g.start.x, point.y - g.start.y) > 10) g.moved = true;
+    const rect = this.canvas.getBoundingClientRect();
+    if (point.x < rect.left || point.x > rect.right || point.y < rect.top || point.y > rect.bottom) return;
+    if (g.area) {
+      const em = this.ctx.entityManager;
+      em.clearSelection();
+      em.getPlayerUnits().forEach(u => {
+        const p = this.ctx.renderer.worldToScreen(u.position);
+        if (p.visible && p.x >= Math.min(g.start.x, point.x) && p.x <= Math.max(g.start.x, point.x)
+          && p.y >= Math.min(g.start.y, point.y) && p.y <= Math.max(g.start.y, point.y)) em.toggleSelectUnit(u);
+      });
+      this.selectArea = false;
+      this.touchFeedback(`${em.selectedUnits.length} selected`);
+    } else if (g.placement) this.updatePlacementAt(point.x, point.y);
+    else if (!g.moved) this.handleTouchTap(point);
+  }
+
+  cancelTouchGesture() {
+    this.touchPoints.clear();
+    this.touchGesture = null;
+    this.selectArea = false;
+    this.isLeftMouseDown = false;
+    this.isBoxSelecting = false;
+    this._radarDrag = false;
+    if (this.selectionBoxEl) this.selectionBoxEl.style.display = 'none';
+  }
+
+  handleTouchTap(point) {
+    const em = this.ctx.entityManager;
+    const world = this.ctx.renderer.getGroundIntersection(point.x, point.y);
+    if (!world) return;
+    const entity = this.pickTouchEntity(point);
+    if (this.ctx.paused) { em.selectSingle(entity); return; }
+    if (this.commandMode === 'airstrike') { this.executeAirstrikeAtMouse(point.x, point.y); this.touchFeedback('Airstrike'); return; }
+    if (this.commandMode === 'rally') {
+      const b = em.selectedBuilding;
+      if (b && b.isAlive && b.faction === 'player' && b.isProducer) {
+        b.setRally(world.x, world.z); b.setRallyVisible(true);
+        this.spawnGroundPip(world.x, world.z, 0xffd700); this.touchFeedback('Rally point set');
+      }
+      this.setCommandMode('normal'); return;
+    }
+    if (this.commandMode === 'escort') {
+      if (entity instanceof Unit && entity.faction === 'player') {
+        em.selectedUnits.filter(u => u !== entity && u.faction === 'player').forEach(u => u.followUnit(entity));
+        this.touchFeedback('Escort'); this.setCommandMode('normal');
+      }
+      return;
+    }
+    if (this.commandMode === 'repair' || this.commandMode === 'sell' || this.commandMode === 'attackmove') {
+      this.selectOrActOnEntity(entity, world, null); return;
+    }
+    if (entity && entity.faction === 'player') {
+      em.selectSingle(entity); this.touchFeedback(entity.spec.name); return;
+    }
+    if (em.selectedUnits.some(u => u.faction === 'player')) {
+      const destination = entity ? entity.position : world;
+      const label = entity ? 'Attack / capture' : this.resolveOrderCursor(world);
+      this.issueOrderAt(destination, { target: entity });
+      this.touchFeedback(label);
+    } else em.selectSingle(entity);
+  }
+
+  stopSelected() {
+    if (this.ctx.paused) return;
+    this.ctx.entityManager.selectedUnits.filter(u => u.faction === 'player').forEach(u => u.becomeIdle());
+    this.touchFeedback('Stop');
+    if (this.ctx.soundFX) this.ctx.soundFX.playOrder();
+  }
+
+  quickSelect(kind) {
+    const em = this.ctx.entityManager;
+    const rect = this.canvas.getBoundingClientRect();
+    em.clearSelection();
+    em.getPlayerUnits().forEach(u => {
+      if (kind === 'harvesters') {
+        if (u.type === 'harvester' && u.harvesterState === 'IDLE' && !u.waypoints.length) em.toggleSelectUnit(u);
+        return;
+      }
+      if (u.type === 'harvester' || u.type === 'engineer' || !u.spec.damage) return;
+      const p = this.ctx.renderer.worldToScreen(u.position);
+      if (kind === 'all' || (p.visible && p.x >= rect.left && p.x <= rect.right && p.y >= rect.top && p.y <= rect.bottom)) em.toggleSelectUnit(u);
+    });
+    this.touchFeedback(`${em.selectedUnits.length} selected`);
+  }
+
+  updatePlacementAt(x, y) {
+    if (!this.placementBuildingType || !this.ghostMesh || this.ctx.paused) return;
+    const world = this.ctx.renderer.getGroundIntersection(x, y);
+    if (!world) return;
+    const spec = BUILDING_SPECS[this.placementBuildingType];
+    this.ghostGridPos = this.ctx.terrain.worldToGrid(world.x, world.z);
+    const tile = this.ctx.terrain.tileSize;
+    this.ghostMesh.position.set((this.ghostGridPos.gx + spec.footprint.w / 2) * tile, 0,
+      (this.ghostGridPos.gz + spec.footprint.h / 2) * tile);
+    this.ghostMesh.visible = true;
+    this.canPlaceCurrentGhost = this.checkPlacementValidity(this.ghostGridPos.gx, this.ghostGridPos.gz, spec.footprint);
+    this.updateGhostColor(this.canPlaceCurrentGhost);
+  }
+
   // --- Building Placement Mode ---
 
   startBuildingPlacement(buildingType) {
+    if (this.ctx.paused) return;
+    this.canPlaceCurrentGhost = false;
+    this.setCommandMode('normal');
     this.placementBuildingType = buildingType;
     const spec = BUILDING_SPECS[buildingType];
     if (!spec) return;
@@ -527,7 +712,9 @@ class InputManager {
 
     this.ghostMesh = group;
     this.ctx.renderer.scene.add(this.ghostMesh);
-    this.updateGhostColor(true);
+    this.ghostMesh.visible = !this.ctx.renderer.touchInput;
+    this.updateGhostColor(false);
+    if (this.ctx.hud) this.ctx.hud.closeTouchPanels();
     if (this.ctx.soundFX) this.ctx.soundFX.playClick();
   }
 
@@ -631,6 +818,9 @@ class InputManager {
   }
 
   confirmBuildingPlacement() {
+    if (this.ctx.paused || !this.placementBuildingType || !this.ghostMesh || !this.ghostMesh.visible) return;
+    const footprint = BUILDING_SPECS[this.placementBuildingType].footprint;
+    this.canPlaceCurrentGhost = this.checkPlacementValidity(this.ghostGridPos.gx, this.ghostGridPos.gz, footprint);
     if (!this.canPlaceCurrentGhost) {
       if (this.ctx.soundFX) this.ctx.soundFX.playAlert();
       return;
@@ -665,11 +855,13 @@ class InputManager {
       this.ghostMesh = null;
     }
     this.placementBuildingType = null;
+    this.canPlaceCurrentGhost = false;
   }
 
   // --- Command Modes ---
 
   setCommandMode(mode) {
+    if (this.ctx.paused && mode !== 'normal') return;
     this.commandMode = mode;
     const vp = document.getElementById('viewport');
     if (!vp) return;
@@ -752,6 +944,7 @@ class InputManager {
   }
 
   executeAirstrikeAtMouse(clientX, clientY) {
+    if (this.ctx.paused) return;
     if (typeof isPlayerRadarOperational === 'function'
       ? !isPlayerRadarOperational(this.ctx)
       : !this.ctx.entityManager.getPlayerBuildings().some((b) => b.type === 'radar_facility' && b.isAlive && !b.isBuilding)) {
@@ -785,6 +978,7 @@ class InputManager {
 
     // Numbers 1-9 for Control Groups
     if (key >= '1' && key <= '9') {
+      if (this.ctx.entityManager.selectedUnits.some(u => u.faction !== 'player') && e.ctrlKey) return;
       const groupNum = parseInt(key);
       if (e.ctrlKey) {
         this.ctx.entityManager.assignControlGroup(groupNum);
@@ -803,6 +997,8 @@ class InputManager {
       return;
     }
 
+    if (this.ctx.paused && !['h', 'escape'].includes(key)) return;
+
     // 'R' Return selected harvesters to the nearest refinery
     if (key === 'r') {
       if (this.returnSelectedHarvesters() && this.ctx.soundFX) this.ctx.soundFX.playOrder();
@@ -819,20 +1015,11 @@ class InputManager {
     }
 
     // 'S' Stop Selected Units
-    if (key === 's') {
-      this.ctx.entityManager.selectedUnits.forEach(u => {
-        if (typeof u.becomeIdle === 'function') u.becomeIdle();
-        else {
-          u.waypoints = [];
-          u.targetEntity = null;
-        }
-      });
-      if (this.ctx.soundFX) this.ctx.soundFX.playOrder();
-    }
+    if (key === 's') this.stopSelected();
 
     // 'G' Guard current post
     if (key === 'g') {
-      this.ctx.entityManager.selectedUnits.forEach((u) => {
+      this.ctx.entityManager.selectedUnits.filter(u => u.faction === 'player').forEach((u) => {
         u.stance = 'guard';
         if (typeof u.becomeIdle === 'function') u.becomeIdle();
       });

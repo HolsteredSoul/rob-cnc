@@ -42,9 +42,59 @@ window.addEventListener('DOMContentLoaded', () => {
     soundFX: window.soundFX,
     // Track whether a mission is currently running
     missionActive: false,
+    paused: false,
+    simulationSpeed: 1,
+    portraitBlocked: false,
+    discardNextFrame: false,
     // Selected team color from lobby ('blue' or 'red')
     playerTeam: 'blue'
   };
+
+  gameContext.pause = () => {
+    if (!gameContext.missionActive || gameContext.paused) return;
+    gameContext.paused = true;
+    gameContext.discardNextFrame = true;
+    renderer.exitPlayLock();
+    renderer.keysDown = {};
+    if (gameContext.inputManager) {
+      gameContext.inputManager.cancelTouchGesture();
+      gameContext.inputManager.setCommandMode('normal');
+    }
+    if (gameContext.minimap) gameContext.minimap.isDragging = false;
+    if (gameContext.hud) gameContext.hud.updateSessionControls();
+  };
+  gameContext.resume = () => {
+    if (!gameContext.missionActive || document.hidden || gameContext.portraitBlocked) return;
+    gameContext.paused = false;
+    gameContext.discardNextFrame = true;
+    if (gameContext.hud) gameContext.hud.updateSessionControls();
+  };
+  gameContext.updateOrientation = () => {
+    const compact = renderer.touchInput || window.innerWidth <= 900;
+    document.documentElement.classList.toggle('touch-layout', compact);
+    gameContext.portraitBlocked = compact && window.innerHeight > window.innerWidth;
+    const prompt = document.getElementById('rotate-prompt');
+    if (prompt) prompt.hidden = !(gameContext.missionActive && gameContext.portraitBlocked);
+    if (gameContext.portraitBlocked) gameContext.pause();
+    renderer.onResize();
+  };
+  gameContext.resetSession = () => {
+    gameContext.paused = false;
+    gameContext.simulationSpeed = 1;
+    gameContext.discardNextFrame = true;
+    if (gameContext.inputManager) {
+      gameContext.inputManager.cancelTouchGesture();
+      gameContext.inputManager.setCommandMode('normal');
+    }
+    if (gameContext.hud) {
+      gameContext.hud.closeTouchPanels();
+      gameContext.hud.cancelSell();
+    }
+  };
+  window.addEventListener('resize', gameContext.updateOrientation);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) gameContext.pause(); });
+  window.addEventListener('pagehide', gameContext.pause);
+  window.addEventListener('blur', gameContext.pause);
 
   // 9. Mission & Campaign Level Manager
   const missionManager = new MissionManager(gameContext);
@@ -63,6 +113,7 @@ window.addEventListener('DOMContentLoaded', () => {
   gameContext.hud = hud;
   window.hud = hud;
   window.gameContext = gameContext;
+  gameContext.updateOrientation();
 
   // -----------------------------------------------------------------------
   // LOBBY SCREEN LOGIC
@@ -127,6 +178,7 @@ window.addEventListener('DOMContentLoaded', () => {
       missionManager.loadMission(missionIdx, difficulty);
       hud.refreshBuildCards();
       gameContext.missionActive = true;
+      gameContext.updateOrientation();
       renderer.onResize();
       renderer.setPlayCapture(true);
 
@@ -141,6 +193,7 @@ window.addEventListener('DOMContentLoaded', () => {
       lobbyEl.classList.add('hidden');
       lobbyEl.style.display = 'none';
       gameContext.missionActive = true;
+      gameContext.updateOrientation();
       renderer.setPlayCapture(true);
     }
   });
@@ -157,6 +210,7 @@ window.addEventListener('DOMContentLoaded', () => {
       lobbyEl.classList.remove('hidden');
       lobbyEl.style.display = 'flex';
       gameContext.missionActive = false;
+      gameContext.updateOrientation();
       renderer.setPlayCapture(false);
     });
   }
@@ -173,6 +227,7 @@ window.addEventListener('DOMContentLoaded', () => {
       lobbyEl.classList.remove('hidden');
       lobbyEl.style.display = 'flex';
       gameContext.missionActive = false;
+      gameContext.updateOrientation();
       renderer.setPlayCapture(false);
     });
   }
@@ -188,6 +243,7 @@ window.addEventListener('DOMContentLoaded', () => {
       lobbyEl.classList.remove('hidden');
       lobbyEl.style.display = 'flex';
       gameContext.missionActive = false;
+      gameContext.updateOrientation();
       renderer.setPlayCapture(false);
     });
   }
@@ -196,6 +252,7 @@ window.addEventListener('DOMContentLoaded', () => {
   // MAIN GAME LOOP (60 FPS)
   // -----------------------------------------------------------------------
   let lastTime = performance.now();
+  let minimapElapsed = 1;
 
   function gameLoop(time) {
     requestAnimationFrame(gameLoop);
@@ -203,7 +260,12 @@ window.addEventListener('DOMContentLoaded', () => {
     const rawDelta = (time - lastTime) / 1000;
     lastTime = time;
     // Clamp delta to prevent physics jumps during background tabs
-    const delta = Math.min(rawDelta, 0.1);
+    const frameDelta = gameContext.discardNextFrame ? 0 : Math.max(0, Math.min(rawDelta, 0.1));
+    gameContext.discardNextFrame = false;
+    const delta = frameDelta * gameContext.simulationSpeed;
+    if (document.hidden) { gameContext.pause(); return; }
+    // Orientation is also checked on mission changes, including retry/continue.
+    if (gameContext.missionActive && gameContext.portraitBlocked) gameContext.pause();
 
     // Only run simulation when a mission is active
     if (!gameContext.missionActive) {
@@ -212,7 +274,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     // 1. Camera Panning & Zoom
-    renderer.update(delta);
+    renderer.update(frameDelta);
     if (renderer.canvas && renderer.canvas.clientWidth > 64) {
       const gl = renderer.renderer.getContext && renderer.renderer.getContext();
       if (gl && gl.drawingBufferWidth <= 300 && renderer.canvas.clientWidth > 300) {
@@ -220,42 +282,48 @@ window.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // 2. Ore Crystals Regrowth
-    terrain.updateOreRegeneration(delta);
+    if (!gameContext.paused) {
+      // 2. Ore Crystals Regrowth
+      terrain.updateOreRegeneration(delta);
 
-    // 3. Fog of War Line-of-Sight
-    const hasPoweredRadar = typeof isPlayerRadarOperational === 'function'
-      ? isPlayerRadarOperational(gameContext)
-      : entityManager.getPlayerBuildings().some(b => b.type === 'radar_facility' && b.isAlive && !b.isBuilding) && economy.isBasePowered('player');
-    fogOfWar.update(
-      entityManager.getPlayerUnits(),
-      entityManager.getPlayerBuildings(),
-      hasPoweredRadar
-    );
+      // 3. Fog of War Line-of-Sight
+      const hasPoweredRadar = typeof isPlayerRadarOperational === 'function'
+        ? isPlayerRadarOperational(gameContext)
+        : entityManager.getPlayerBuildings().some(b => b.type === 'radar_facility' && b.isAlive && !b.isBuilding) && economy.isBasePowered('player');
+      fogOfWar.update(
+        entityManager.getPlayerUnits(),
+        entityManager.getPlayerBuildings(),
+        hasPoweredRadar
+      );
 
-    // 4. Units & Buildings Simulation
-    entityManager.update(delta, gameContext);
+      // 4. Units & Buildings Simulation
+      entityManager.update(delta, gameContext);
 
-    // 5. Projectiles & Explosions
-    projectileManager.update(delta, entityManager);
+      // 5. Projectiles & Explosions
+      projectileManager.update(delta, entityManager);
 
-    // 6. Economy & Power Grid Calculation
-    economy.update(delta, entityManager, window.soundFX);
+      // 6. Economy & Power Grid Calculation
+      economy.update(delta, entityManager, window.soundFX);
 
-    // 7. Enemy AI Decisions & Assaults
-    skirmishAI.update(delta, gameContext);
+      // 7. Enemy AI Decisions & Assaults
+      skirmishAI.update(delta, gameContext);
 
-    // 8. Mission Objectives & Tutorial Checks
-    missionManager.update(delta);
+      // 8. Mission Objectives & Tutorial Checks
+      missionManager.update(delta);
+    }
 
     // 9. Minimap & Radar Display
-    minimap.update();
+    minimapElapsed += frameDelta;
+    if (!renderer.mobileGraphics || minimapElapsed >= 0.15) {
+      minimap.update();
+      minimapElapsed = 0;
+    }
 
     // 10. HUD Sidebar & Build Queues
-    hud.update(delta);
+    hud.update(frameDelta);
 
     // 11. World-space command markers (move pips / attack brackets)
-    if (inputManager.update) inputManager.update(delta);
+    if (inputManager.update) inputManager.update(frameDelta);
 
     // 12. Render 3D Scene
     renderer.render();

@@ -179,6 +179,7 @@ class MissionManager {
   }
 
   loadMission(index, customDifficulty = null) {
+    if (this.gameContext.resetSession) this.gameContext.resetSession();
     this.currentMissionIndex = index;
     this.currentStepIndex = 0;
     this.playerHasMovedUnits = false;
@@ -320,7 +321,20 @@ class MissionManager {
     const mission = MISSIONS[this.currentMissionIndex];
     if (mission.isTutorial && mission.tutorialSteps) {
       const step = mission.tutorialSteps[this.currentStepIndex];
-      if (step) return step.instruction;
+      if (step) {
+        if (this.gameContext.renderer.touchInput) {
+          const touchInstructions = {
+            move_units: 'SELECT & MOVE: Tap infantry, then tap ground to move. Drag to pan; pinch to zoom. Use Select Area for squads.',
+            build_power: 'POWER: Open Build > STRUCT. Tap Power Plant, tap ground near your base, then Place. Two fingers move the camera.',
+            build_refinery: 'ECONOMY: Build an Ore Refinery near golden ore. Its Harvester starts mining automatically when construction finishes.',
+            build_barracks: 'INFANTRY: Open Build > STRUCT and place a Barracks near your base.',
+            train_troops: 'REINFORCEMENTS: Open Build > INFANTRY. Tap troop cards to train at least 3 soldiers. Cancel one removes a queued unit.',
+            destroy_enemy: 'ASSAULT: Select your squad, use Attack-Move, then tap north-east. Reveal and destroy the enemy Command Center!'
+          };
+          return touchInstructions[step.id] || step.instruction;
+        }
+        return step.instruction;
+      }
       return 'OBJECTIVE: Eliminate remaining enemy forces!';
     }
     if (mission.winRule === 'destroy_all') {

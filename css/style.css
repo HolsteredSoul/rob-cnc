@@ -32,7 +32,6 @@ body, html {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  touch-action: none;
   background-color: #000;
   font-family: 'Consolas', 'Courier New', monospace, sans-serif;
   color: #d0e0e3;
@@ -1212,4 +1211,116 @@ html.pointer-locked * {
   font-size: 14px;
   padding: 12px 30px;
   letter-spacing: 2px;
+}
+
+/* Touch surfaces own gestures; menus and drawers keep native scrolling. */
+#three-canvas, #minimap-canvas { touch-action: none; }
+#game-container { -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+.touch-only, .touch-panel { display: none; }
+#game-container, .modal-overlay { height: 100dvh; }
+#command-feedback {
+  position: absolute; top: 12px; right: 12px; z-index: 40;
+  background: #12232ded; color: #d9f7df; border-radius: 4px;
+  padding: 8px; pointer-events: none; font-size: 13px;
+}
+#command-feedback:empty { display: none; }
+#rotate-prompt {
+  position: fixed; inset: 0; z-index: 400; background: #101c26f5;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 32px; font-size: 20px; line-height: 1.7;
+}
+#modal-sell { z-index: 260; }
+.cnc-modal { max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; }
+.cnc-modal-header, .cnc-modal-footer { flex-shrink: 0; }
+.cnc-modal-body { min-height: 0; overflow-y: auto; touch-action: pan-y; }
+.build-details { padding: 8px; font-size: 12px; text-align: left; line-height: 1.5; }
+.touch-layout .touch-only { display: flex; }
+.touch-layout .touch-panel { display: flex; }
+.touch-layout button, .touch-layout .build-tab, .touch-layout .diff-btn,
+.touch-layout .mission-card, .touch-layout .team-card {
+  min-height: 44px; min-width: 44px; touch-action: manipulation;
+}
+.touch-layout button { font-size: 12px; }
+.touch-layout #game-container {
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+.touch-layout #viewport { width: 100%; min-width: 0; }
+.touch-layout #top-tactical-bar { top: 4px; left: 6px; right: 6px; gap: 5px; }
+.touch-layout .tactical-badge { padding: 5px 8px; gap: 4px; font-size: 11px; min-height: 44px; }
+.touch-layout .tactical-badge .value { font-size: 13px; }
+.touch-layout #team-badge, .touch-layout #top-tactical-bar .label { display: none !important; }
+.touch-layout #mobile-power { color: #b3dfb8; }
+.touch-layout #mobile-power.deficit { color: #ff9292; }
+.touch-layout #mission-objective-bar { top: 54px; left: 6px; max-width: min(360px, 58vw); padding: 6px 8px; pointer-events: none; }
+.touch-layout .objective-header { display: none; }
+.touch-layout .objective-text { font-size: 11px; line-height: 1.35; }
+.touch-layout #mobile-controls {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 55;
+  gap: 4px; padding: 5px; background: #101c26f5; overflow-x: auto; touch-action: pan-x;
+}
+.touch-layout #mobile-controls button { flex: 1 0 auto; padding: 6px 9px; }
+.touch-layout #mobile-controls button, .touch-layout .touch-panel button,
+.touch-layout #btn-close-drawer, .touch-layout .build-card-actions button {
+  background: #223946; color: #e5f4f7; border: 1px solid #52727f; border-radius: 4px;
+}
+.touch-layout button:disabled { opacity: 0.45; }
+.touch-layout button[aria-pressed="true"], .touch-layout button[aria-expanded="true"] { border-color: #54ee97; color: #8bffc0; }
+.touch-layout #sidebar {
+  display: none; position: absolute; z-index: 60; width: min(360px, 80vw);
+  top: calc(52px + env(safe-area-inset-top, 0px)); right: env(safe-area-inset-right, 0px);
+  bottom: calc(58px + env(safe-area-inset-bottom, 0px)); height: auto;
+  border: 1px solid #52727f;
+}
+.touch-layout #sidebar.drawer-open { display: flex; }
+.touch-layout #sidebar #radar-container, .touch-layout #sidebar #sidebar-status-row,
+.touch-layout #sidebar #command-modes-row { display: none; }
+.touch-layout #sidebar.map-only { width: 268px; bottom: auto; }
+.touch-layout #sidebar.map-only #radar-container { display: flex; height: 218px; flex-shrink: 0; }
+.touch-layout #sidebar.map-only #build-tabs, .touch-layout #sidebar.map-only #build-grid-container { display: none; }
+.touch-layout #btn-close-drawer { align-items: center; justify-content: center; flex-shrink: 0; }
+.touch-layout #build-tabs { flex-shrink: 0; }
+.touch-layout #build-grid-container { min-height: 0; touch-action: pan-y; }
+.touch-layout .build-card { min-height: 100px; }
+.touch-layout .build-card-actions { gap: 4px; margin-top: 6px; position: relative; z-index: 3; flex-wrap: wrap; }
+.touch-layout .build-card-actions button { flex: 1; padding: 4px; }
+.touch-layout .build-card.locked { pointer-events: auto !important; }
+.touch-layout #build-tooltip { display: none !important; }
+.touch-layout #selection-card {
+  bottom: 59px; left: 6px; padding: 5px 8px; gap: 8px;
+  min-width: 0; max-width: 240px; pointer-events: none;
+}
+.touch-layout .selection-portrait, .touch-layout .selection-stats,
+.touch-layout #stance-actions-row { display: none !important; }
+.touch-layout .selection-name { font-size: 12px; }
+.touch-layout #mobile-more {
+  position: absolute; bottom: 58px; right: 6px; z-index: 65;
+  width: min(360px, 80vw); max-height: calc(100% - 112px); overflow-y: auto;
+  flex-wrap: wrap; gap: 6px; padding: 10px; background: #101e29f5;
+  border: 1px solid #52727f; touch-action: pan-y;
+}
+.touch-layout #mobile-more > button { flex: 1 0 44%; }
+.touch-layout #mobile-more p { font-size: 12px; line-height: 1.5; }
+.group-row { display: flex; align-items: center; gap: 6px; width: 100%; font-size: 12px; }
+.group-row button { flex: 1; }
+.touch-layout #placement-controls {
+  position: absolute; bottom: 110px; right: 6px; z-index: 56;
+  max-width: calc(100% - 12px); align-items: center; gap: 6px;
+  padding: 6px; background: #10212bf5; border: 1px solid #52727f;
+}
+.touch-layout #placement-controls span { max-width: 190px; font-size: 12px; }
+.touch-layout #placement-controls button { padding: 8px 12px; }
+.touch-layout #command-feedback { top: 54px; right: 6px; max-width: 36%; font-size: 12px; }
+.touch-layout #radio-feed { bottom: 110px; width: min(240px, 40vw); }
+.touch-layout .radio-message { font-size: 11px; }
+.touch-layout .cnc-modal { max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 12px); }
+.touch-layout .cnc-modal-header { padding: 8px 12px; }
+.touch-layout .cnc-modal-body { padding: 12px; max-height: none; }
+.touch-layout .cnc-modal-footer { padding: 6px; gap: 6px; flex-wrap: wrap; }
+.touch-layout .cnc-modal-footer button { flex: 1; padding: 6px 10px; }
+@media (max-width: 600px) {
+  .touch-layout .team-selector { flex-wrap: wrap; }
+  .touch-layout .team-card { min-width: 0; }
+  .touch-layout .cnc-modal-title { letter-spacing: 1px !important; font-size: 15px !important; }
 }

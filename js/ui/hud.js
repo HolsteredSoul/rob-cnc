@@ -23,8 +23,177 @@ class HUD {
 
     this.initDOMReferences();
     this.initEventListeners();
+    this.initTouchControls();
     this.paintLobbyCameos();
     this.refreshBuildCards();
+  }
+
+  initTouchControls() {
+    const bind = (id, fn) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', fn);
+    };
+    const im = this.ctx.inputManager;
+    const em = this.ctx.entityManager;
+    bind('btn-pause', () => {
+      if (this.ctx.paused) this.ctx.resume(); else this.ctx.pause();
+    });
+    bind('btn-speed', () => { this.ctx.simulationSpeed = this.ctx.simulationSpeed === 1 ? 0.5 : 1; this.updateSessionControls(); });
+    bind('btn-resume-menu', () => { this.hideMissionModal(); this.ctx.resume(); });
+    bind('btn-build', () => this.toggleTouchPanel('build'));
+    bind('btn-map', () => this.toggleTouchPanel('map'));
+    bind('btn-more', () => this.toggleTouchPanel('more'));
+    bind('btn-close-drawer', () => this.closeTouchPanels());
+    bind('btn-home', () => {
+      const hq = em.getPlayerBuildings().find(b => b.type === 'command_center');
+      if (hq) this.ctx.renderer.panTo(hq.position.x, hq.position.z);
+    });
+    bind('btn-select-area', () => {
+      const enabled = !im.selectArea;
+      im.cancelTouchGesture();
+      im.cancelBuildingPlacement();
+      im.setCommandMode('normal');
+      im.selectArea = enabled;
+      this.closeTouchPanels();
+      this.showCommandFeedback(enabled ? 'Drag a box around your units' : 'Selection cancelled');
+    });
+    bind('btn-stop', () => im.stopSelected());
+    bind('btn-touch-attack', () => this.armTouchMode('attackmove'));
+    bind('btn-return', () => { if (im.returnSelectedHarvesters()) this.showCommandFeedback('Return cargo'); });
+    bind('btn-clear', () => { em.clearSelection(); im.setCommandMode('normal'); });
+    bind('btn-place', () => im.confirmBuildingPlacement());
+    bind('btn-cancel-command', () => { im.cancelBuildingPlacement(); im.setCommandMode('normal'); im.selectArea = false; });
+    bind('btn-cancel-sell', () => this.cancelSell());
+    bind('btn-confirm-sell', () => {
+      const b = this.sellTarget;
+      if (b && b.isAlive && b.faction === 'player' && !this.ctx.paused && this.ctx.missionActive) {
+        this.ctx.economy.addCredits('player', Math.floor(b.spec.cost * 0.5));
+        b.takeDamage(99999);
+        im.setCommandMode('normal');
+      }
+      this.cancelSell();
+    });
+    document.querySelectorAll('[data-quick]').forEach(el => el.addEventListener('click', () => {
+      im.quickSelect(el.dataset.quick); this.closeTouchPanels();
+    }));
+    document.querySelectorAll('[data-touch-mode]').forEach(el => el.addEventListener('click', () => this.armTouchMode(el.dataset.touchMode)));
+    document.querySelectorAll('.touch-stance').forEach(el => el.addEventListener('click', () => {
+      if (this.ctx.paused) return;
+      em.selectedUnits.filter(u => u.faction === 'player').forEach(u => {
+        u.stance = el.dataset.stance;
+        if (u.stance === 'holdground') u.holdPosition();
+        if (u.stance === 'guard') u.becomeIdle();
+      });
+      this.showCommandFeedback(el.textContent); this.closeTouchPanels();
+    }));
+    document.querySelectorAll('[data-group-assign]').forEach(el => el.addEventListener('click', () => {
+      if (em.selectedUnits.some(u => u.faction !== 'player')) return;
+      const ok = em.assignControlGroup(Number(el.dataset.groupAssign));
+      this.showCommandFeedback(ok ? `Group ${el.dataset.groupAssign} assigned` : 'Select friendly units first');
+    }));
+    document.querySelectorAll('[data-group-recall]').forEach(el => el.addEventListener('click', () => {
+      const ok = em.selectControlGroup(Number(el.dataset.groupRecall));
+      this.showCommandFeedback(ok ? `Group ${el.dataset.groupRecall} selected` : 'Group is empty');
+      this.closeTouchPanels();
+    }));
+  }
+
+  armTouchMode(mode) {
+    if (this.ctx.paused) { this.showCommandFeedback('Resume to give orders'); return; }
+    const em = this.ctx.entityManager;
+    if (mode === 'airstrike' && !isPlayerRadarOperational(this.ctx)) return;
+    if (mode === 'rally' && (!em.selectedBuilding || !em.selectedBuilding.isProducer || em.selectedBuilding.faction !== 'player')) {
+      this.showCommandFeedback('Select your Barracks or War Factory first'); return;
+    }
+    if (['attackmove', 'escort'].includes(mode) && !em.selectedUnits.some(u => u.faction === 'player')) {
+      this.showCommandFeedback('Select your units first'); return;
+    }
+    this.ctx.inputManager.cancelBuildingPlacement();
+    this.ctx.inputManager.selectArea = false;
+    this.ctx.inputManager.setCommandMode(mode);
+    this.closeTouchPanels();
+    this.showCommandFeedback(`Tap a target: ${mode}`);
+  }
+
+  closeTouchPanels() {
+    this.touchPanel = null;
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) sidebar.classList.remove('drawer-open', 'map-only');
+    const more = document.getElementById('mobile-more');
+    if (more) more.hidden = true;
+    ['btn-build', 'btn-map', 'btn-more'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.setAttribute('aria-expanded', 'false');
+    });
+    this.hideBuildTooltip();
+  }
+
+  toggleTouchPanel(panel) {
+    const previous = this.touchPanel;
+    this.closeTouchPanels();
+    if (previous === panel) return;
+    this.touchPanel = panel;
+    const button = document.getElementById(`btn-${panel}`);
+    if (button) button.setAttribute('aria-expanded', 'true');
+    if (panel === 'more') document.getElementById('mobile-more').hidden = false;
+    else {
+      const sidebar = document.getElementById('sidebar');
+      sidebar.classList.add('drawer-open');
+      sidebar.classList.toggle('map-only', panel === 'map');
+    }
+  }
+
+  showCommandFeedback(label) {
+    const el = document.getElementById('command-feedback');
+    if (!el) return;
+    el.textContent = label;
+    clearTimeout(this.feedbackTimeout);
+    this.feedbackTimeout = setTimeout(() => { el.textContent = ''; }, 2200);
+  }
+
+  confirmSell(building) {
+    if (this.ctx.paused) return;
+    this.sellTarget = building;
+    this.ctx.renderer.exitPlayLock();
+    const modal = document.getElementById('modal-sell');
+    if (!modal) return;
+    document.getElementById('sell-description').textContent = `Sell ${building.spec.name} for $${Math.floor(building.spec.cost * 0.5)}?`;
+    modal.classList.remove('hidden');
+  }
+
+  cancelSell() {
+    this.sellTarget = null;
+    const modal = document.getElementById('modal-sell');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  updateSessionControls() {
+    const pause = document.getElementById('btn-pause');
+    if (pause) pause.textContent = this.ctx.paused ? 'Resume' : 'Pause';
+    const speed = document.getElementById('btn-speed');
+    if (speed) speed.textContent = this.ctx.simulationSpeed === 0.5 ? '0.5×' : '1×';
+    const power = document.getElementById('mobile-power');
+    if (power) {
+      const stats = this.ctx.economy.getPowerStats('player');
+      power.textContent = `PWR ${stats.produced}/${stats.consumed}`;
+      power.classList.toggle('deficit', stats.isDeficit);
+    }
+    const im = this.ctx.inputManager;
+    const area = document.getElementById('btn-select-area');
+    if (area) area.setAttribute('aria-pressed', String(im.selectArea));
+    const controls = document.getElementById('placement-controls');
+    if (controls) {
+      const placing = !!im.placementBuildingType;
+      controls.hidden = !(placing || im.commandMode !== 'normal' || im.selectArea);
+      const place = document.getElementById('btn-place');
+      place.hidden = !placing;
+      place.disabled = this.ctx.paused || !im.canPlaceCurrentGhost;
+      document.getElementById('placement-help').textContent = this.ctx.paused ? 'Paused — Resume to give orders'
+        : placing ? (!im.ghostMesh.visible ? 'Tap ground to preview' : im.canPlaceCurrentGhost ? 'Ready — Place to confirm' : 'Blocked or too far from base')
+        : im.selectArea ? 'Drag to select units' : `Tap target: ${im.commandMode}`;
+    }
+    const airstrike = document.getElementById('btn-touch-airstrike');
+    if (airstrike) airstrike.disabled = this.ctx.paused || !isPlayerRadarOperational(this.ctx);
+    if (this.sellTarget && (!this.sellTarget.isAlive || this.ctx.paused)) this.cancelSell();
   }
 
   paintLobbyCameos() {
@@ -106,6 +275,7 @@ class HUD {
     // Unit Stance Buttons
     document.querySelectorAll('.stance-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
+        if (this.ctx.paused) return;
         let stance = e.currentTarget.dataset.stance;
         if (stance === 'hold') stance = 'holdground';
         this.ctx.entityManager.selectedUnits.forEach((u) => {
@@ -151,6 +321,7 @@ class HUD {
       this.hideMissionModal();
       this.refreshBuildCards();
       this.ctx.missionActive = true;
+      if (this.ctx.updateOrientation) this.ctx.updateOrientation();
       if (this.ctx.renderer && this.ctx.renderer.setPlayCapture) this.ctx.renderer.setPlayCapture(true);
     });
 
@@ -162,6 +333,7 @@ class HUD {
       this.ctx.missionManager.loadMission(nextMission);
       this.refreshBuildCards();
       this.ctx.missionActive = true;
+      if (this.ctx.updateOrientation) this.ctx.updateOrientation();
       if (this.ctx.renderer && this.ctx.renderer.setPlayCapture) this.ctx.renderer.setPlayCapture(true);
     });
 
@@ -172,11 +344,13 @@ class HUD {
       this.ctx.missionManager.loadMission(this.ctx.missionManager.currentMissionIndex);
       this.refreshBuildCards();
       this.ctx.missionActive = true;
+      if (this.ctx.updateOrientation) this.ctx.updateOrientation();
       if (this.ctx.renderer && this.ctx.renderer.setPlayCapture) this.ctx.renderer.setPlayCapture(true);
     });
   }
 
   update(delta) {
+    this.updateSessionControls();
     const { economy, entityManager, missionManager } = this.ctx;
     if (!this.creditsValEl) return;
 
@@ -323,7 +497,41 @@ class HUD {
         e.preventDefault();
         this.onBuildCardCancel(item);
       });
-      this.buildGridEl.appendChild(card);
+      const actions = document.createElement('div');
+      actions.className = 'touch-only build-card-actions';
+      const info = document.createElement('button');
+      info.textContent = 'Info';
+      info.setAttribute('aria-label', `Information about ${spec.name}`);
+      const details = document.createElement('div');
+      details.className = 'build-details';
+      details.hidden = true;
+      info.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const requirements = TechTree.REQUIREMENTS[item.type] || [];
+        const missing = requirements.filter(t => !TechTree.hasBuilding(this.ctx.entityManager.getPlayerBuildings(), t));
+        details.textContent = `${spec.name}: $${spec.cost}. ${spec.buildTime || 0}s. `
+          + (missing.length ? `Requires completed ${missing.map(t => BUILDING_SPECS[t].name).join(' + ')}. ` : '')
+          + (!this.ctx.economy.canAfford('player', spec.cost) ? 'Insufficient funds. ' : '')
+          + (spec.powerProduced ? `Produces ${spec.powerProduced} MW. ` : '')
+          + (spec.powerConsumed ? `Uses ${spec.powerConsumed} MW. ` : '')
+          + (item.isBuilding ? 'Tap the card to preview placement.' : 'Tap the card to train one unit.');
+        details.hidden = !details.hidden;
+        info.setAttribute('aria-expanded', String(!details.hidden));
+      });
+      actions.appendChild(info);
+      if (!item.isBuilding) {
+        const cancel = document.createElement('button');
+        cancel.textContent = 'Cancel one';
+        cancel.setAttribute('aria-label', `Cancel one ${spec.name}`);
+        cancel.addEventListener('click', (e) => { e.stopPropagation(); this.onBuildCardCancel(item); });
+        actions.appendChild(cancel);
+      }
+      const itemEl = document.createElement('div');
+      itemEl.className = 'build-item';
+      itemEl.appendChild(card);
+      itemEl.appendChild(actions);
+      itemEl.appendChild(details);
+      this.buildGridEl.appendChild(itemEl);
     });
   }
 
@@ -373,6 +581,7 @@ class HUD {
   }
 
   onBuildCardClicked(item) {
+    if (this.ctx.paused) { this.showCommandFeedback("Resume to build or train"); return; }
     const playerBuildings = this.ctx.entityManager.getPlayerBuildings();
     const isUnlocked = TechTree.isUnlocked(item.type, playerBuildings);
     if (!isUnlocked) {
@@ -415,6 +624,7 @@ class HUD {
   }
 
   onBuildCardCancel(item) {
+    if (this.ctx.paused) return;
     if (item.isBuilding) return;
     const { entityManager, economy, soundFX } = this.ctx;
     const spec = UNIT_SPECS[item.type];
@@ -501,6 +711,8 @@ class HUD {
 
   // Bottom selection HUD card
   updateSelectionCard() {
+    const em = this.ctx.entityManager;
+    if (this.ctx.inputManager && [...em.selectedUnits, em.selectedBuilding].some(e => e && !this.ctx.inputManager.isEntityVisible(e))) em.clearSelection();
     const { selectedUnits, selectedBuilding } = this.ctx.entityManager;
     if (!this.selectionCardEl) return;
 
@@ -596,6 +808,8 @@ class HUD {
   }
 
   showMissionModal() {
+    if (this.ctx.pause) this.ctx.pause();
+    this.cancelSell();
     this.modalMission.classList.remove('hidden');
     this.modalMission.style.display = 'flex';
   }
@@ -606,11 +820,15 @@ class HUD {
   }
 
   showVictoryModal() {
+    this.cancelSell();
+    this.closeTouchPanels();
     this.modalVictory.classList.remove('hidden');
     this.modalVictory.style.display = 'flex';
   }
 
   showDefeatModal() {
+    this.cancelSell();
+    this.closeTouchPanels();
     this.modalDefeat.classList.remove('hidden');
     this.modalDefeat.style.display = 'flex';
   }

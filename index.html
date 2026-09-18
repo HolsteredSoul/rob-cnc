@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Command &amp; Conquer: Operation Vanguard</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="css/style.css">
@@ -31,6 +31,9 @@
           <span class="label">TEAM:</span>
           <span class="value" id="team-badge-val">BLUE</span>
         </div>
+        <span class="tactical-badge touch-only" id="mobile-power"></span>
+        <button class="badge-btn" id="btn-pause">Pause</button>
+        <button class="badge-btn" id="btn-speed" aria-label="Simulation speed">1×</button>
         <button class="badge-btn" id="btn-menu">&#9776; MENU</button>
       </div>
 
@@ -47,6 +50,35 @@
 
       <!-- Radio Audio / Event Notification Feed -->
       <div id="radio-feed"></div>
+
+      <div id="command-feedback" role="status" aria-live="polite"></div>
+      <div id="mobile-controls" class="touch-only" aria-label="Battlefield controls">
+        <button id="btn-build" aria-expanded="false">Build</button>
+        <button id="btn-home">Home</button>
+        <button id="btn-map" aria-expanded="false">Map</button>
+        <button id="btn-select-area" aria-pressed="false">Select Area</button>
+        <button id="btn-stop">Stop</button>
+        <button id="btn-touch-attack">Attack-Move</button>
+        <button id="btn-more" aria-expanded="false">More</button>
+      </div>
+      <div id="mobile-more" class="touch-panel" hidden aria-label="Squad commands">
+        <button data-quick="visible">Visible army</button><button data-quick="all">All army</button>
+        <button data-quick="harvesters">Idle harvesters</button><button id="btn-return">Return cargo</button>
+        <button data-touch-mode="escort">Escort</button><button data-touch-mode="rally">Rally point</button>
+        <button data-touch-mode="repair">Repair</button><button data-touch-mode="sell">Sell</button>
+        <button data-touch-mode="airstrike" id="btn-touch-airstrike">Airstrike</button>
+        <button id="btn-clear">Clear selection</button>
+        <button class="touch-stance" data-stance="aggressive">Aggressive</button><button class="touch-stance" data-stance="guard">Guard</button>
+        <button class="touch-stance" data-stance="holdground">Hold ground</button><button class="touch-stance" data-stance="holdfire">Hold fire</button>
+        <div class="group-row"><span>Group 1</span><button data-group-assign="1">Assign 1</button><button data-group-recall="1">Recall 1</button></div>
+        <div class="group-row"><span>Group 2</span><button data-group-assign="2">Assign 2</button><button data-group-recall="2">Recall 2</button></div>
+        <div class="group-row"><span>Group 3</span><button data-group-assign="3">Assign 3</button><button data-group-recall="3">Recall 3</button></div>
+        <p>Tap to select or order. Drag to pan. Pinch to zoom. Pause allows inspection; Resume to give orders.</p>
+      </div>
+      <div id="placement-controls" class="touch-panel" hidden>
+        <span id="placement-help">Tap ground to preview</span>
+        <button id="btn-place">Place</button><button id="btn-cancel-command">Cancel</button>
+      </div>
 
       <!-- Unit / Structure Selection HUD Card -->
       <div id="selection-card" class="hidden">
@@ -79,6 +111,7 @@
 
     <!-- Right Command & Conquer Sidebar -->
     <div id="sidebar">
+      <button class="touch-only" id="btn-close-drawer">Close panel</button>
       
       <!-- Radar Screen Container -->
       <div id="radar-container">
@@ -126,6 +159,13 @@
 
   </div>
 
+  <div id="rotate-prompt" hidden role="status">Rotate to landscape to play.<br>Then tap Resume to continue.</div>
+  <div class="modal-overlay hidden" id="modal-sell" role="dialog" aria-modal="true" aria-labelledby="sell-title">
+    <div class="cnc-modal"><div class="cnc-modal-header" id="sell-title">Sell building?</div>
+      <div class="cnc-modal-body" id="sell-description"></div>
+      <div class="cnc-modal-footer"><button class="cnc-btn" id="btn-cancel-sell">Cancel</button><button class="cnc-btn" id="btn-confirm-sell">Sell</button></div>
+    </div>
+  </div>
   <!-- Building Tooltip -->
   <div id="build-tooltip" role="tooltip">
     <div class="tooltip-title" id="tooltip-title">Power Plant</div>
@@ -243,6 +283,7 @@
 
       </div>
       <div class="cnc-modal-footer">
+        <button class="cnc-btn" id="btn-resume-menu">Resume</button>
         <button class="cnc-btn" id="btn-back-to-lobby">&#8592; BACK TO LOBBY</button>
         <button class="cnc-btn cnc-btn-primary" id="btn-launch-mission">DEPLOY FORCES</button>
       </div>

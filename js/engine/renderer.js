@@ -34,6 +34,8 @@ class GameRenderer {
     this.pointerInside = false;
     this.pointerLocked = false;
     this.lockEnabled = false;
+    this.touchInput = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    this.mobileGraphics = this.touchInput;
     this.virtualCursor = { x: 400, y: 300 };
     this.lockRoot = null;
     this.cursorEl = null;
@@ -64,13 +66,13 @@ class GameRenderer {
     try {
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas,
-        antialias: true,
+        antialias: !this.mobileGraphics,
         powerPreference: "high-performance",
         preserveDrawingBuffer: true
       });
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      this.renderer.setPixelRatio(this.mobileGraphics ? 1 : Math.min(window.devicePixelRatio || 1, 2));
       this.renderer.setSize(size.width, size.height, false);
-      this.renderer.shadowMap.enabled = true;
+      this.renderer.shadowMap.enabled = !this.mobileGraphics;
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     } catch (err) {
       console.warn('[CNC RTS]: WebGL unavailable, using fallback renderer', err);
@@ -87,6 +89,14 @@ class GameRenderer {
     this.lockHintEl = document.getElementById('pointer-lock-hint');
 
     window.addEventListener('resize', () => this.onResize());
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', () => this.onResize());
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.onResize());
+      this.resizeObserver.observe(this.canvas);
+    }
+    window.addEventListener('pointerdown', (e) => {
+      this.setTouchInput(e.pointerType === 'touch' || e.pointerType === 'pen');
+    }, true);
     window.addEventListener('keydown', (e) => {
       const target = e.target;
       const focusedControl = !!(target && target.closest && target.closest('#sidebar, #top-tactical-bar, #selection-card, #mission-objective-bar, .modal-overlay, button, .build-card, .build-tab, .cmd-mode-btn'));
@@ -106,12 +116,15 @@ class GameRenderer {
       if (!e.relatedTarget && !this.pointerLocked) this.pointerInside = false;
     });
     window.addEventListener('blur', () => {
+      this.keysDown = {};
+      this.isMiddleDragging = false;
       if (!this.pointerLocked) this.pointerInside = false;
     });
     document.addEventListener('pointerlockchange', () => this.onPointerLockChange());
     document.addEventListener('mozpointerlockchange', () => this.onPointerLockChange());
 
     this.canvas.addEventListener('mousedown', (e) => {
+      if (this.touchInput) return;
       if (e.button === 1) {
         this.isMiddleDragging = true;
         const pt = this.getPointerClient(e);
@@ -125,6 +138,7 @@ class GameRenderer {
     });
 
     window.addEventListener('wheel', (e) => {
+      if (e.target !== this.canvas || this.touchInput) return;
       e.preventDefault();
       if (this.lockEnabled || this.pointerInside || this.pointerLocked) {
         const zoomDelta = e.deltaY * 0.0012;
@@ -152,6 +166,7 @@ class GameRenderer {
   }
 
   applyMouseMove(e) {
+    if (this.touchInput) return;
     if (this.pointerLocked) {
       const mx = e.movementX || 0;
       const my = e.movementY || 0;
@@ -274,7 +289,8 @@ class GameRenderer {
   }
 
   requestPlayLock() {
-    if (!this.lockEnabled) return;
+    if (!this.lockEnabled || this.touchInput || (window.gameContext && window.gameContext.paused)) return;
+    if (document.querySelector('.modal-overlay:not(.hidden)')) return;
     const el = this.lockRoot || this.canvas;
     if (!el) return;
     const fn = el.requestPointerLock || el.mozRequestPointerLock || el.webkitRequestPointerLock;
@@ -332,7 +348,7 @@ class GameRenderer {
       }
     }
     if (this.lockHintEl) {
-      if (!this.lockEnabled) {
+      if (!this.lockEnabled || this.touchInput) {
         this.lockHintEl.classList.add('hidden');
       } else {
         this.lockHintEl.classList.remove('hidden');
@@ -344,6 +360,7 @@ class GameRenderer {
   }
 
   getEdgePan() {
+    if (this.touchInput) return { x: 0, z: 0 };
     if (!this.pointerInside && !this.pointerLocked) return { x: 0, z: 0 };
 
     const edgeThreshold = 24;
@@ -439,6 +456,39 @@ class GameRenderer {
     this.targetPos.z = worldZ;
     this.clampTargetPos();
     this.updateCameraPosition();
+  }
+
+  setTouchInput(enabled) {
+    if (this.touchInput === enabled) return;
+    this.touchInput = enabled;
+    if (window.gameContext && window.gameContext.inputManager) window.gameContext.inputManager.cancelTouchGesture();
+    if (enabled) {
+      this.exitPlayLock();
+      this.pointerInside = false;
+      this.keysDown = {};
+      if (!this.mobileGraphics) {
+        this.mobileGraphics = true;
+        this.renderer.setPixelRatio(1);
+        this.renderer.shadowMap.enabled = false;
+        this.onResize();
+      }
+    }
+    this.syncCursorHud();
+    if (window.gameContext && window.gameContext.updateOrientation) window.gameContext.updateOrientation();
+  }
+
+  panBetweenClients(from, to) {
+    const a = this.getGroundIntersection(from.x, from.y);
+    const b = this.getGroundIntersection(to.x, to.y);
+    if (a && b) this.panTo(this.targetPos.x + a.x - b.x, this.targetPos.z + a.z - b.z);
+  }
+
+  zoomAtClient(scale, center) {
+    const before = this.getGroundIntersection(center.x, center.y);
+    this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel * scale));
+    this.updateCameraPosition();
+    const after = this.getGroundIntersection(center.x, center.y);
+    if (before && after) this.panTo(this.targetPos.x + before.x - after.x, this.targetPos.z + before.z - after.z);
   }
 
   // Convert screen coordinates to world ground position (Y=0)

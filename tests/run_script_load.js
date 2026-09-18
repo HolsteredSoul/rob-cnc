@@ -51,7 +51,7 @@ try {
   assert(destChanged, 'move order did not change unit waypoint/position');
 
   const grid = sandbox.document.getElementById('build-grid');
-  const cards = (grid && grid.children ? grid.children : []).filter((c) => c.classList && c.classList.contains('build-card'));
+  const cards = grid ? Array.from(grid.querySelectorAll('.build-card')) : [];
   assert(cards.length > 0, 'sidebar has no structure/infantry cards');
   const types = cards.map((c) => c.dataset.type);
   assert(types.indexOf('power_plant') !== -1, 'structures tab missing power plant card');
