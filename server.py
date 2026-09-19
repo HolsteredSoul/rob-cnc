@@ -37,6 +37,9 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     # Chrome opens extra connections (favicon, preconnect). A single-thread
     # TCPServer deadlocks those while the first request is still in flight.
     daemon_threads = True
+    # A reload can burst more parallel asset connections than TCPServer's
+    # default five-slot queue, especially while another tab is still loading.
+    request_queue_size = 64
     allow_reuse_address = True
     block_on_close = False
 

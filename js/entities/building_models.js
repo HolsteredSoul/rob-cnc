@@ -5,6 +5,21 @@
 class BuildingModels {
   static playerTeam = 'blue';
 
+  static createDish(radius, depth) {
+    const dish = new THREE.Group();
+    const bowlMat = new THREE.MeshLambertMaterial({ color: 0xb9c6c9, side: THREE.DoubleSide });
+    const frameMat = new THREE.MeshLambertMaterial({ color: 0x35434b });
+    const profile = [[0, 0], [radius * .25, depth * .04], [radius * .6, depth * .3], [radius, depth]];
+    const bowl = new THREE.Mesh(new THREE.LatheGeometry(profile.map(p => new THREE.Vector2(p[0], p[1])), 16), bowlMat);
+    bowl.castShadow = true;
+    dish.add(bowl);
+    const rim = new THREE.TorusGeometry(radius, .055, 4, 16).rotateX(Math.PI / 2).translate(0, depth, 0);
+    const feed = new THREE.CylinderGeometry(.055, .08, depth + .5, 6).translate(0, (depth + .5) / 2, 0);
+    dish.add(new THREE.Mesh(ModelGeometry.merge([rim, feed]), frameMat));
+    dish.rotation.x = .4;
+    return dish;
+  }
+
   static getFactionColors(faction = 'player') {
     const isPlayerBlue = (this.playerTeam || 'blue') === 'blue';
     const isBlue = faction === 'player' ? isPlayerBlue : !isPlayerBlue;
@@ -81,14 +96,8 @@ class BuildingModels {
 
     // Satellite Dish on Roof
     const dishGroup = new THREE.Group();
-    dishGroup.position.set(0, 4.8, 0);
-    const dishGeo = new THREE.CylinderGeometry(1.2, 0.3, 0.4, 12, 1, true);
-    dishGeo.rotateX(0.4);
-    const dish = new THREE.Mesh(dishGeo, steelMat);
-    const spireGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.6);
-    const spire = new THREE.Mesh(spireGeo, steelMat);
-    spire.position.set(0, 0.8, 0);
-    dishGroup.add(dish, spire);
+    dishGroup.position.set(0, 5.0, 0);
+    dishGroup.add(this.createDish(1.2, .45));
     group.add(dishGroup);
 
     // Blast Doors / Entry Ramp
@@ -110,7 +119,8 @@ class BuildingModels {
     const group = new THREE.Group();
 
     const concreteMat = new THREE.MeshLambertMaterial({ color: c.concrete });
-    const armorMat = new THREE.MeshLambertMaterial({ color: c.primary });
+    const armorMat = new THREE.MeshLambertMaterial({ color: 0x78817b, side: THREE.DoubleSide });
+    const teamMat = new THREE.MeshLambertMaterial({ color: c.primary });
     const steelMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
     const glowMat = new THREE.MeshBasicMaterial({ color: 0x33ff66 });
 
@@ -121,7 +131,10 @@ class BuildingModels {
     group.add(base);
 
     // Dual Hyperbolic Cooling Towers
-    const towerGeo = new THREE.CylinderGeometry(1.2, 1.7, 3.8, 16);
+    const towerGeo = new THREE.LatheGeometry([
+      new THREE.Vector2(1.15, -1.9), new THREE.Vector2(1.02, -1.3),
+      new THREE.Vector2(.76, .2), new THREE.Vector2(.9, 1.3), new THREE.Vector2(1.05, 1.9)
+    ], 16);
     const leftTower = new THREE.Mesh(towerGeo, armorMat);
     leftTower.position.set(-1.4, 2.7, 0);
     leftTower.castShadow = true;
@@ -131,12 +144,12 @@ class BuildingModels {
     group.add(leftTower, rightTower);
 
     // Glowing Power Coils / Reactor Core
-    const coilGeo = new THREE.TorusGeometry(1.25, 0.12, 8, 16);
+    const coilGeo = new THREE.TorusGeometry(.91, .055, 4, 16);
     coilGeo.rotateX(Math.PI / 2);
     const coil1 = new THREE.Mesh(coilGeo, glowMat);
-    coil1.position.set(-1.4, 3.6, 0);
+    coil1.position.set(-1.4, 4.0, 0);
     const coil2 = new THREE.Mesh(coilGeo, glowMat);
-    coil2.position.set(1.4, 3.6, 0);
+    coil2.position.set(1.4, 4.0, 0);
     group.add(coil1, coil2);
 
     // Generator Turbines
@@ -144,6 +157,18 @@ class BuildingModels {
     const gen = new THREE.Mesh(genGeo, steelMat);
     gen.position.set(0, 1.2, 0);
     group.add(gen);
+    const rims = [], mouths = [], bands = [];
+    [-1.4, 1.4].forEach(x => {
+      rims.push(new THREE.TorusGeometry(1.05, .09, 4, 16).rotateX(Math.PI / 2).translate(x, 4.6, 0));
+      mouths.push(new THREE.CylinderGeometry(.91, .91, .08, 16).translate(x, 4.35, 0));
+      bands.push(new THREE.CylinderGeometry(1.16, 1.16, .25, 16).translate(x, 1.03, 0));
+    });
+    group.add(new THREE.Mesh(ModelGeometry.merge(rims), teamMat));
+    group.add(new THREE.Mesh(ModelGeometry.merge(mouths), steelMat));
+    group.add(new THREE.Mesh(ModelGeometry.merge(bands), teamMat));
+    group.add(new THREE.Mesh(ModelGeometry.boxes([
+      [.13, .05, 1.9, -.42, 1.83, 0], [.13, .05, 1.9, 0, 1.83, 0], [.13, .05, 1.9, .42, 1.83, 0]
+    ]), armorMat));
 
     group.userData = { footprint: { w: 3, h: 3 }, coils: [coil1, coil2] };
     return group;
@@ -194,12 +219,13 @@ class BuildingModels {
     const group = new THREE.Group();
 
     const concreteMat = new THREE.MeshLambertMaterial({ color: c.concrete });
-    const armorMat = new THREE.MeshLambertMaterial({ color: c.primary });
+    const armorMat = new THREE.MeshLambertMaterial({ color: 0x727971 });
+    const teamMat = new THREE.MeshLambertMaterial({ color: c.primary });
     const steelMat = new THREE.MeshLambertMaterial({ color: 0x272b2e });
     const goldMat = new THREE.MeshStandardMaterial({
       color: 0xffcc00,
       emissive: 0xaa7700,
-      emissiveIntensity: 0.5
+      emissiveIntensity: 0.12, side: THREE.DoubleSide
     });
 
     // Base Pad
@@ -231,10 +257,26 @@ class BuildingModels {
     group.add(ramp);
 
     // Ore Hopper Intake Funnel
-    const hopperGeo = new THREE.CylinderGeometry(1.6, 0.6, 1.8, 8);
+    const hopperGeo = new THREE.CylinderGeometry(1.6, 0.6, 1.8, 8, 1, true);
     const hopper = new THREE.Mesh(hopperGeo, goldMat);
     hopper.position.set(2.0, 1.6, -1.8);
     group.add(hopper);
+    const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 2.02, .35, 16), steelMat);
+    roof.position.set(-1.4, 4.95, -1.2);
+    roof.castShadow = true;
+    group.add(roof);
+    group.add(new THREE.Mesh(ModelGeometry.merge([
+      new THREE.CylinderGeometry(2.035, 2.05, .3, 16).translate(-1.4, 4.45, -1.2),
+      new THREE.TorusGeometry(1.6, .1, 4, 8).rotateX(Math.PI / 2).translate(2, 2.5, -1.8)
+    ]), teamMat));
+    group.add(new THREE.Mesh(ModelGeometry.merge([
+      new THREE.CylinderGeometry(.18, .18, 2.6, 8).rotateZ(Math.PI / 2).translate(.65, 2.4, -1.8),
+      new THREE.CylinderGeometry(.38, .38, .16, 8).translate(-2.4, 6.0, 1.4),
+      new THREE.CylinderGeometry(.38, .38, .16, 8).translate(-1.2, 6.0, 1.8)
+    ]), armorMat));
+    const dockMarks = [[.16, .05, 3.5, .66, .69, .35], [.16, .05, 3.5, 3.32, .69, .35]];
+    for (let i = 0; i < 5; i++) dockMarks.push([.27, .04, .55, 1.0 + i * .5, .63, 1.88, 0, .4]);
+    group.add(new THREE.Mesh(ModelGeometry.boxes(dockMarks), goldMat));
 
     group.userData = {
       footprint: { w: 4, h: 4 },
@@ -305,7 +347,9 @@ class BuildingModels {
 
     // Massive Industrial Assembly Hall
     const hallGeo = new THREE.BoxGeometry(7.0, 3.4, 7.0);
-    const hallMat = new THREE.MeshLambertMaterial({ color: c.primary });
+    const hallMat = new THREE.MeshLambertMaterial({ color: 0x626e70 });
+    const steelMat = new THREE.MeshLambertMaterial({ color: 0x303d44 });
+    const teamMat = new THREE.MeshLambertMaterial({ color: c.primary });
     const hall = new THREE.Mesh(hallGeo, hallMat);
     hall.position.set(0, 2.3, 0);
     hall.castShadow = true;
@@ -313,21 +357,35 @@ class BuildingModels {
 
     // Large Rolling Garage Bay Doors
     const doorGeo = new THREE.BoxGeometry(3.8, 2.4, 0.2);
-    const door = new THREE.Mesh(doorGeo, new THREE.MeshLambertMaterial({ color: 0x22262a }));
+    const door = new THREE.Mesh(doorGeo, steelMat);
     door.position.set(0, 1.5, 3.52);
     group.add(door);
 
     // Industrial Overhead Gantry Crane / Truss
     const trussGeo = new THREE.BoxGeometry(6.6, 0.4, 0.4);
-    const truss = new THREE.Mesh(trussGeo, new THREE.MeshLambertMaterial({ color: 0xffaa00 }));
-    truss.position.set(0, 4.2, 0);
+    const truss = new THREE.Mesh(trussGeo, teamMat);
+    truss.position.set(0, 3.8, 3.45);
     group.add(truss);
 
     // Ventilation Exhaust Fans
     const ventGeo = new THREE.CylinderGeometry(0.8, 0.8, 0.6, 10);
-    const vent = new THREE.Mesh(ventGeo, new THREE.MeshLambertMaterial({ color: 0x333b40 }));
+    const vent = new THREE.Mesh(ventGeo, steelMat);
     vent.position.set(-2.0, 4.3, -1.8);
     group.add(vent);
+    const roof = new THREE.Mesh(ModelGeometry.boxes([
+      [2.0, .45, 5.6, .9, 4.23, -.25], [.23, .45, 6.7, -3.25, 4.18, 0], [.23, .45, 6.7, 3.25, 4.18, 0],
+      [.45, 3.2, .35, -3.05, 2.25, 3.45], [.45, 3.2, .35, 3.05, 2.25, 3.45]
+    ]), steelMat);
+    roof.castShadow = true;
+    group.add(roof);
+    const panels = [], seams = [];
+    for (let i = 0; i < 4; i++) {
+      panels.push([1.62, .07, .88, .9, 4.49, -2.3 + i * 1.35]);
+      seams.push([6.25, .055, .09, 0, 4.035, -2.6 + i * 1.7]);
+      seams.push([3.5, .045, .04, 0, .75 + i * .5, 3.63]);
+    }
+    group.add(new THREE.Mesh(ModelGeometry.boxes(panels), teamMat));
+    group.add(new THREE.Mesh(ModelGeometry.boxes(seams), steelMat));
 
     group.userData = {
       footprint: { w: 4, h: 4 },
@@ -363,15 +421,7 @@ class BuildingModels {
     const radarGroup = new THREE.Group();
     radarGroup.position.set(0, 4.0, 0);
 
-    // Curved parabolic radar dish
-    const dishGeo = new THREE.CylinderGeometry(1.8, 0.4, 0.5, 12, 1, true);
-    dishGeo.rotateX(0.3);
-    const dish = new THREE.Mesh(dishGeo, new THREE.MeshLambertMaterial({ color: 0xd9e5ec }));
-    const feedHornGeo = new THREE.ConeGeometry(0.2, 0.9, 6);
-    feedHornGeo.rotateX(Math.PI / 2);
-    const feedHorn = new THREE.Mesh(feedHornGeo, new THREE.MeshLambertMaterial({ color: 0xd9e5ec }));
-    feedHorn.position.set(0, 0, 0.8);
-    radarGroup.add(dish, feedHorn);
+    radarGroup.add(this.createDish(1.8, .65));
     group.add(radarGroup);
 
     group.userData = {

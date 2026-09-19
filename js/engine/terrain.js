@@ -201,6 +201,14 @@ generateTerrainMesh() {
       ctx.stroke();
     }
 
+    // Fine ground grain breaks up the broad colour patches without extra
+    // ground meshes, collision cells, or textures. Use the local seeded RNG.
+    for (let i = 0; i < 14000; i++) {
+      ctx.globalAlpha = .07 + random() * .12;
+      ctx.fillStyle = i % 3 === 0 ? colAccent : (i % 3 === 1 ? colDirt : colRock);
+      ctx.fillRect(random() * 1024, random() * 1024, .7 + random() * 1.5, .7 + random() * 2.4);
+    }
+    ctx.globalAlpha = 1;
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
@@ -236,20 +244,24 @@ generateTerrainMesh() {
   // Interactive 3D shimmering gold crystals matching terrain elevation
   createOreField(centerX, centerZ, radius = 6, richness = 4000) {
     const crystalsPerField = 16;
-    const crystalGeo = new THREE.ConeGeometry(0.55, 2.4, 5);
-    crystalGeo.translate(0, 1.2, 0);
+    const crystalGeo = ModelGeometry.merge([
+      new THREE.CylinderGeometry(.25, .45, 1.7, 5).translate(0, .85, 0),
+      new THREE.ConeGeometry(.25, .7, 5).translate(0, 2.05, 0)
+    ]);
 
     const goldMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffcc00,
-      emissive: 0xaa7700,
-      emissiveIntensity: 0.65,
-      roughness: 0.15,
-      metalness: 0.9
+      color: 0xc69a32,
+      emissive: 0x5b3807,
+      emissiveIntensity: 0.18,
+      roughness: 0.7,
+      metalness: 0.15,
+      flatShading: true
     });
 
     const fieldGroup = new THREE.Group();
     const groundY = this.getElevation(centerX, centerZ);
     fieldGroup.position.set(centerX, groundY, centerZ);
+    const crystalParts = [];
 
     for (let i = 0; i < crystalsPerField; i++) {
       const angle = (i / crystalsPerField) * Math.PI * 2 + Math.random() * 0.5;
@@ -265,9 +277,17 @@ generateTerrainMesh() {
       crystal.rotation.z = (Math.random() - 0.5) * 0.35;
       const scale = 0.7 + Math.random() * 0.7;
       crystal.scale.set(scale, scale * (1 + Math.random() * 0.5), scale);
-      crystal.castShadow = true;
-      fieldGroup.add(crystal);
+      crystal.updateMatrix();
+      crystalParts.push(crystalGeo.clone().applyMatrix4(crystal.matrix));
+      // Decorative offshoots follow each crystal's existing transform. They
+      // add no resource nodes or collision cells.
+      crystalParts.push(crystalGeo.clone().scale(.48, .5, .48).rotateZ(.35)
+        .translate(.24, 0, .16).applyMatrix4(crystal.matrix));
     }
+    crystalGeo.dispose();
+    const oreMesh = new THREE.Mesh(ModelGeometry.merge(crystalParts), goldMaterial);
+    oreMesh.castShadow = true;
+    fieldGroup.add(oreMesh);
 
     // Glowing point light on ore field
     const oreLight = new THREE.PointLight(0xffaa00, 0.9, 22);
@@ -292,11 +312,26 @@ generateTerrainMesh() {
 
   // Impassable mountain rock cliffs
   createRockCluster(cx, cz, count = 5, scale = 2) {
-    const rockGeo = new THREE.DodecahedronGeometry(1.4, 1);
+    const rockShapes = [];
+    for (let variant = 0; variant < Math.min(3, count); variant++) {
+      const geo = new THREE.DodecahedronGeometry(1.4, 0);
+      const p = geo.getAttribute('position');
+      const colors = [];
+      for (let v = 0; v < p.count; v++) {
+        const x = p.getX(v), y = p.getY(v), z = p.getZ(v);
+        const uneven = .88 + .1 * Math.sin(x * 4 + z * 3 + variant * 2);
+        p.setXYZ(v, x * uneven, y * (.82 + .12 * Math.cos(x * 3 + variant)), z * uneven);
+        const shade = .78 + .2 * (y / 2.8 + .5);
+        colors.push(shade, shade, shade);
+      }
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geo.computeVertexNormals();
+      rockShapes.push(geo);
+    }
     const rockMat = new THREE.MeshStandardMaterial({
       color: this.biome === 'desert' ? 0x8a6a3a : (this.biome === 'snow' ? 0x8a9aa6 : 0x3d4952),
       roughness: this.biome === 'snow' ? 0.55 : 0.92,
-      metalness: 0.08
+      metalness: 0.02, flatShading: true, vertexColors: true
     });
 
     for (let i = 0; i < count; i++) {
@@ -304,7 +339,7 @@ generateTerrainMesh() {
       const rz = cz + (Math.random() - 0.5) * scale * 4;
       const ry = this.getElevation(rx, rz);
 
-      const rock = new THREE.Mesh(rockGeo, rockMat);
+      const rock = new THREE.Mesh(rockShapes[i % rockShapes.length], rockMat);
       rock.position.set(rx, ry + 0.8 * scale, rz);
       rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
       rock.scale.set(scale * (0.8 + Math.random() * 0.6), scale * (0.6 + Math.random() * 0.5), scale);
@@ -354,29 +389,33 @@ generateTerrainMesh() {
 
   createTemperateTree() {
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3e2723 });
-    const pineMat = new THREE.MeshLambertMaterial({ color: Math.random() > 0.5 ? 0x1b4332 : 0x2d6a4f });
-    const deciduousMat = new THREE.MeshLambertMaterial({ color: 0x40916c });
+    const variation = Math.random();
+    const isPine = Math.random() > .35;
+    const leafMat = new THREE.MeshLambertMaterial({ color: isPine
+      ? (variation > .5 ? 0x304b36 : 0x3d5940) : 0x536b39 });
     const group = new THREE.Group();
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 1.8, 6), trunkMat);
     trunk.position.set(0, 0.9, 0);
     trunk.castShadow = true;
     group.add(trunk);
-    if (Math.random() > 0.35) {
+    const crown = [];
+    if (isPine) {
       for (let tier = 0; tier < 3; tier++) {
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(1.4, 2.2, 7), pineMat);
         const ts = 1 - tier * 0.22;
-        cone.scale.set(ts, ts, ts);
-        cone.position.set(0, 1.8 + tier * 1.1, 0);
-        cone.castShadow = true;
-        group.add(cone);
+        const cone = new THREE.ConeGeometry(1.4, 2.2, 7);
+        cone.scale(ts, ts, ts * (.85 + variation * .15));
+        cone.rotateY(tier * .55 + variation);
+        cone.translate(Math.sin(tier * 2 + variation) * .12, 1.8 + tier * 1.1, 0);
+        crown.push(cone);
       }
     } else {
-      const canopy = new THREE.Mesh(new THREE.SphereGeometry(1.2, 6, 6), deciduousMat);
-      canopy.position.set(0, 2.2, 0);
-      canopy.scale.set(1.2, 1.1, 1.2);
-      canopy.castShadow = true;
-      group.add(canopy);
+      crown.push(new THREE.DodecahedronGeometry(.95, 0).scale(1.1, 1.2, 1).translate(0, 2.35, 0));
+      crown.push(new THREE.DodecahedronGeometry(.8, 0).translate(-.55, 1.85, .23));
+      crown.push(new THREE.DodecahedronGeometry(.75, 0).translate(.56, 2.05, -.25));
     }
+    const canopy = new THREE.Mesh(ModelGeometry.merge(crown), leafMat);
+    canopy.castShadow = true;
+    group.add(canopy);
     return group;
   }
 
@@ -397,6 +436,12 @@ generateTerrainMesh() {
       arm2.position.set(-0.35, 1.7, 0);
       arm2.rotation.z = 1.05;
       group.add(arm2);
+      // Upright tips make the arms read as a cactus at the game camera angle.
+      const tips = ModelGeometry.merge([
+        new THREE.CylinderGeometry(.11, .13, .6, 6).translate(.9, 1.95, 0),
+        new THREE.CylinderGeometry(.09, .11, .45, 6).translate(-.69, 2.05, 0)
+      ]);
+      group.add(new THREE.Mesh(tips, cactusMat));
     } else {
       const bush = new THREE.Mesh(new THREE.SphereGeometry(0.55, 5, 5), deadMat);
       bush.position.y = 0.4;
@@ -420,18 +465,18 @@ generateTerrainMesh() {
     trunk.position.y = 0.8;
     trunk.castShadow = true;
     group.add(trunk);
+    const needles = [], snow = [];
     for (let tier = 0; tier < 3; tier++) {
       const ts = 1 - tier * 0.24;
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(1.3, 1.9, 7), needleMat);
-      cone.scale.set(ts, ts, ts);
-      cone.position.set(0, 1.6 + tier * 0.95, 0);
-      cone.castShadow = true;
-      group.add(cone);
-      const cap = new THREE.Mesh(new THREE.ConeGeometry(1.05, 0.45, 7), snowMat);
-      cap.scale.set(ts, ts, ts);
-      cap.position.set(0, 2.15 + tier * 0.95, 0);
-      group.add(cap);
+      needles.push(new THREE.ConeGeometry(1.3, 1.9, 7).scale(ts, ts, ts)
+        .rotateY(tier * .6).translate(0, 1.6 + tier * .95, 0));
+      // Follow the branch slope so snow sits on the crown, not in floating discs.
+      snow.push(new THREE.ConeGeometry(1.05, 1.55, 7).scale(ts, ts, ts)
+        .rotateY(tier * .6).translate(0, 1.6 + tier * .95 + .2 * ts, 0));
     }
+    const crown = new THREE.Mesh(ModelGeometry.merge(needles), needleMat);
+    crown.castShadow = true;
+    group.add(crown, new THREE.Mesh(ModelGeometry.merge(snow), snowMat));
     return group;
   }
 

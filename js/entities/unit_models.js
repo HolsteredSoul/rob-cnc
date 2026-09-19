@@ -42,6 +42,21 @@ class UnitModels {
     return wheels;
   }
 
+  static addDeckVents(group, width, y, z, material) {
+    const vents = [];
+    for (let i = 0; i < 4; i++) vents.push([width, .035, .055, 0, y, z + i * .12]);
+    group.add(new THREE.Mesh(ModelGeometry.boxes(vents), material));
+  }
+
+  static addTrackCleats(group, x, width, height, length, material) {
+    const cleats = [];
+    for (let i = 0; i < 7; i++) {
+      const z = (i / 6 - .5) * (length - .6);
+      cleats.push([width, .025, .07, -x, height + .012, z], [width, .025, .07, x, height + .012, z]);
+    }
+    group.add(new THREE.Mesh(ModelGeometry.boxes(cleats), material));
+  }
+
   // --- 1. Machine Gunner (Infantry) ---
   static createMachineGunner(faction = 'player') {
     const colors = this.getFactionColors(faction);
@@ -276,24 +291,31 @@ class UnitModels {
     const colors = this.getFactionColors(faction);
     const group = new THREE.Group();
 
-    const hullMat = new THREE.MeshLambertMaterial({ color: colors.primary });
+    const hullMat = new THREE.MeshLambertMaterial({ color: 0x596361 });
+    const teamMat = new THREE.MeshLambertMaterial({ color: colors.primary });
     const darkSteel = new THREE.MeshLambertMaterial({ color: 0x282f34 });
     const treadMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
 
     // Dual Tracks
-    const treadGeo = new THREE.BoxGeometry(0.4, 0.5, 2.4);
+    const treadGeo = ModelGeometry.track(0.4, 0.5, 2.4);
     const leftTread = new THREE.Mesh(treadGeo, treadMat);
-    leftTread.position.set(-0.75, 0.25, 0);
+    leftTread.position.set(-0.75, 0, 0);
     const rightTread = new THREE.Mesh(treadGeo, treadMat);
-    rightTread.position.set(0.75, 0.25, 0);
+    rightTread.position.set(0.75, 0, 0);
     group.add(leftTread, rightTread);
-    this.addRoadWheels(group, [-0.75, 0.75], 0.22, [-0.7, 0, 0.7], 0.22, 0.28, treadMat);
+    this.addRoadWheels(group, [-0.75, 0.75], 0.25, [-0.7, 0, 0.7], 0.18, 0.4, hullMat);
+    this.addTrackCleats(group, .75, .4, .5, 2.4, darkSteel);
 
     // Chassis Hull
-    const hullGeo = new THREE.BoxGeometry(1.2, 0.5, 2.2);
+    const hullGeo = ModelGeometry.taperedBox(1.2, 0.5, 2.2, .12);
     const hull = new THREE.Mesh(hullGeo, hullMat);
     hull.position.set(0, 0.45, 0);
+    hull.castShadow = true;
     group.add(hull);
+    group.add(new THREE.Mesh(ModelGeometry.boxes([
+      [.22, .06, 1.75, -.39, .71, 0], [.22, .06, 1.75, .39, .71, 0]
+    ]), teamMat));
+    this.addDeckVents(group, .48, .72, -.82, darkSteel);
 
     // Rotating Turret with Twin Autocannons
     const turretGroup = new THREE.Group();
@@ -398,33 +420,45 @@ class UnitModels {
     const colors = this.getFactionColors(faction);
     const group = new THREE.Group();
 
-    const hullMat = new THREE.MeshLambertMaterial({ color: colors.primary });
+    const hullMat = new THREE.MeshLambertMaterial({ color: 0x596361 });
     const treadMat = new THREE.MeshLambertMaterial({ color: 0x181818 });
-    const turretMat = new THREE.MeshLambertMaterial({ color: colors.secondary });
+    const turretMat = new THREE.MeshLambertMaterial({ color: 0x46504e });
+    const teamMat = new THREE.MeshLambertMaterial({ color: colors.primary });
     const steelMat = new THREE.MeshLambertMaterial({ color: 0x22262a });
 
     // Heavy Tread Skirts
-    const treadGeo = new THREE.BoxGeometry(0.65, 0.7, 3.2);
+    const treadGeo = ModelGeometry.track(0.65, 0.7, 3.2);
     const leftTread = new THREE.Mesh(treadGeo, treadMat);
-    leftTread.position.set(-1.05, 0.35, 0);
+    leftTread.position.set(-1.05, 0, 0);
     const rightTread = new THREE.Mesh(treadGeo, treadMat);
-    rightTread.position.set(1.05, 0.35, 0);
+    rightTread.position.set(1.05, 0, 0);
     group.add(leftTread, rightTread);
-    this.addRoadWheels(group, [-1.05, 1.05], 0.28, [-1.1, 0, 1.1], 0.28, 0.4, treadMat);
+    this.addRoadWheels(group, [-1.05, 1.05], 0.35, [-1.08, 0, 1.08], 0.26, 0.65, hullMat);
+    this.addTrackCleats(group, 1.05, .65, .7, 3.2, steelMat);
 
     // Main Heavy Hull
-    const hullGeo = new THREE.BoxGeometry(1.6, 0.65, 3.0);
+    const hullGeo = ModelGeometry.taperedBox(1.6, 0.65, 3.0, .18);
     const hull = new THREE.Mesh(hullGeo, hullMat);
     hull.position.set(0, 0.6, 0);
+    hull.castShadow = true;
     group.add(hull);
+    group.add(new THREE.Mesh(ModelGeometry.boxes([
+      [.27, .08, 2.3, -.88, .78, -.15], [.27, .08, 2.3, .88, .78, -.15],
+      [1.0, .05, .28, 0, .94, 1.08]
+    ]), teamMat));
+    this.addDeckVents(group, 1.05, .94, -1.18, steelMat);
 
     // Rotating 360-degree Turret
     const turretGroup = new THREE.Group();
     turretGroup.position.set(0, 1.0, -0.2);
 
-    const turretBodyGeo = new THREE.BoxGeometry(1.3, 0.55, 1.7);
+    const turretBodyGeo = ModelGeometry.taperedBox(1.3, 0.55, 1.7, .18);
     const turretBody = new THREE.Mesh(turretBodyGeo, turretMat);
+    turretBody.castShadow = true;
     turretGroup.add(turretBody);
+    turretGroup.add(new THREE.Mesh(ModelGeometry.boxes([
+      [.21, .04, 1.1, -.32, .295, .02], [.6, .19, .28, 0, .02, .9]
+    ]), teamMat));
 
     // Heavy High-Caliber Cannon
     const cannonGeo = new THREE.CylinderGeometry(0.12, 0.14, 2.4, 8);
@@ -465,32 +499,43 @@ class UnitModels {
     const indYellow = new THREE.MeshLambertMaterial({ color: 0xe0a010 }); // Industrial yellow
     const treadMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
     const steelMat = new THREE.MeshLambertMaterial({ color: 0x333b40 });
+    const teamMat = new THREE.MeshLambertMaterial({ color: colors.primary });
+    const glassMat = new THREE.MeshLambertMaterial({ color: 0x85bac6 });
     const goldOreMat = new THREE.MeshStandardMaterial({
-      color: 0xffcc00,
-      emissive: 0xaa7700,
-      emissiveIntensity: 0.8
+      color: 0xc69a32,
+      emissive: 0x5b3807,
+      emissiveIntensity: 0.18, roughness: .7, metalness: .15
     });
 
     // Heavy Treads
-    const treadGeo = new THREE.BoxGeometry(0.7, 0.8, 3.4);
+    const treadGeo = ModelGeometry.track(0.7, 0.8, 3.4);
     const leftTread = new THREE.Mesh(treadGeo, treadMat);
-    leftTread.position.set(-1.15, 0.4, 0);
+    leftTread.position.set(-1.15, 0, 0);
     const rightTread = new THREE.Mesh(treadGeo, treadMat);
-    rightTread.position.set(1.15, 0.4, 0);
+    rightTread.position.set(1.15, 0, 0);
     group.add(leftTread, rightTread);
-    this.addRoadWheels(group, [-1.15, 1.15], 0.32, [-1.2, 0, 1.2], 0.3, 0.42, treadMat);
+    this.addRoadWheels(group, [-1.15, 1.15], 0.4, [-1.15, 0, 1.15], 0.3, 0.7, steelMat);
+    this.addTrackCleats(group, 1.15, .7, .8, 3.4, steelMat);
 
     // Main Industrial Cab & Chassis
     const chassisGeo = new THREE.BoxGeometry(1.8, 0.75, 3.2);
     const chassis = new THREE.Mesh(chassisGeo, indYellow);
     chassis.position.set(0, 0.75, 0);
+    chassis.castShadow = true;
     group.add(chassis);
 
     // Front Armored Cab
-    const cabGeo = new THREE.BoxGeometry(1.5, 0.7, 1.0);
+    const cabGeo = ModelGeometry.taperedBox(1.5, 0.7, 1.0, .14);
     const cab = new THREE.Mesh(cabGeo, steelMat);
     cab.position.set(0, 1.3, 1.0);
+    cab.castShadow = true;
     group.add(cab);
+    group.add(new THREE.Mesh(ModelGeometry.boxes([
+      [1.08, .3, .05, 0, 1.43, 1.44, -.38], [.8, .035, .42, 0, 1.66, 1.0]
+    ]), glassMat));
+    group.add(new THREE.Mesh(ModelGeometry.boxes([
+      [.19, .05, .72, -.53, 1.67, 1.0], [.19, .05, .72, .53, 1.67, 1.0]
+    ]), teamMat));
 
     // Front Mining Auger / Drill Cylinder
     const drillGeo = new THREE.CylinderGeometry(0.35, 0.35, 2.2, 12);
@@ -500,16 +545,26 @@ class UnitModels {
     group.add(drill);
 
     // Rear Ore Hopper (Dump Bed)
-    const hopperGeo = new THREE.BoxGeometry(1.7, 0.9, 1.8);
+    const hopperGeo = ModelGeometry.boxes([
+      [.13, .6, 1.8, -.79, 1.42, -.6], [.13, .6, 1.8, .79, 1.42, -.6],
+      [1.45, .6, .13, 0, 1.42, -1.44], [1.45, .6, .13, 0, 1.42, .24]
+    ]);
     const hopper = new THREE.Mesh(hopperGeo, indYellow);
-    hopper.position.set(0, 1.25, -0.6);
+    hopper.castShadow = true;
     group.add(hopper);
+    group.add(new THREE.Mesh(ModelGeometry.boxes([[1.45, .1, 1.55, 0, 1.135, -.6]]), steelMat));
 
     // Glowing Gold Ore inside Hopper (scales with cargo!)
-    const oreCargoGeo = new THREE.BoxGeometry(1.5, 0.7, 1.6);
+    // Bottom-anchored cargo rises inside the open bed; empty cargo is hidden.
+    const oreCargoGeo = ModelGeometry.merge([
+      new THREE.BoxGeometry(1.45, .52, 1.55).translate(0, .26, 0),
+      new THREE.DodecahedronGeometry(.35, 0).scale(1, .65, 1).translate(-.3, .52, -.3),
+      new THREE.DodecahedronGeometry(.3, 0).scale(1, .7, 1).translate(.3, .52, .25)
+    ]);
     const oreCargo = new THREE.Mesh(oreCargoGeo, goldOreMat);
-    oreCargo.position.set(0, 1.3, -0.6);
-    oreCargo.scale.set(0.9, 0.1, 0.9); // Starts empty
+    oreCargo.position.set(0, 1.19, -0.6);
+    oreCargo.scale.set(0.9, 0.1, 0.9);
+    oreCargo.visible = false;
     group.add(oreCargo);
 
     group.scale.set(1.2, 1.2, 1.2);

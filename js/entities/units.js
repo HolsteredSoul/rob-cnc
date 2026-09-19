@@ -1082,6 +1082,7 @@ class Unit {
           if (this.mesh.userData.oreCargo) {
             const fillRatio = this.cargo / this.maxCargo;
             this.mesh.userData.oreCargo.scale.set(0.9, 0.1 + fillRatio * 0.9, 0.9);
+            this.mesh.userData.oreCargo.visible = this.cargo > 0;
           }
 
           if (this.cargo >= this.maxCargo) {
@@ -1130,6 +1131,7 @@ class Unit {
           this.cargo = 0;
           if (this.mesh.userData.oreCargo) {
             this.mesh.userData.oreCargo.scale.set(0.9, 0.05, 0.9);
+            this.mesh.userData.oreCargo.visible = false;
           }
           this.harvesterState = 'IDLE';
           this.order = 'harvest';

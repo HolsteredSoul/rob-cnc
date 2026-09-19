@@ -86,7 +86,30 @@ function run() {
     const harvester = ctx.entityManager.getPlayerUnits().find((u) => u.type === 'harvester');
     assert(!!harvester, 'refinery must grant a free harvester');
     const creditsBefore = ctx.economy.credits.player;
-    tick(ctx, 22, 0.05);
+    assert(harvester.mesh.userData.oreCargo.visible === false, 'new harvester bed must be empty');
+    let sawVisibleOre = false, sawEmptyBedAfterUnload = false;
+    for (let t = 0; t < 22; t += .05) {
+      tick(ctx, .05, .05);
+      const ore = harvester.mesh.userData.oreCargo;
+      if (harvester.cargo > 0 && !sawVisibleOre) {
+        assert(ore.visible, 'mining must reveal cargo in the open bed');
+        harvester.mesh.updateMatrixWorld(true);
+        const target = ore.getWorldPosition(new g.THREE.Vector3());
+        target.y += .2;
+        const origin = target.clone().add(new g.THREE.Vector3(0, 12, 9));
+        const ray = new g.THREE.Raycaster(origin, target.clone().sub(origin).normalize());
+        const visibleMeshes = [];
+        harvester.mesh.traverseVisible(object => { if (object.isMesh) visibleMeshes.push(object); });
+        const hit = ray.intersectObjects(visibleMeshes, false)[0];
+        assert(hit && hit.object === ore, 'cargo must be visible from the RTS camera, not enclosed by the hopper');
+        sawVisibleOre = true;
+      }
+      if (sawVisibleOre && harvester.cargo === 0) {
+        assert(!ore.visible, 'unloading must empty the visible bed');
+        sawEmptyBedAfterUnload = true;
+      }
+    }
+    assert(sawVisibleOre && sawEmptyBedAfterUnload, 'must observe visible loading and emptying during a real harvest cycle');
     const creditsAfter = ctx.economy.credits.player;
     assert(creditsAfter > creditsBefore, 'credits did not rise after mine→return→unload (before=' + creditsBefore + ' after=' + creditsAfter + ' cargo=' + harvester.cargo + ' state=' + harvester.harvesterState + ')');
     results.push('PASS harvest→return→unload credits ' + creditsBefore + ' → ' + creditsAfter);
